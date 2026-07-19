@@ -1,0 +1,91 @@
+{
+  "name": "hidden-fees-budget",
+  "style": "hidden_fees",
+  "description": "Shop leads with a parts-and-labor headline and reveals the shop-supply fee only when challenged. The hidden fee must still be extracted and evidenced.",
+  "data": {
+    "conversation_id": "conv_golden_hidden_fees_budget",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Pads and rotors on a Camry? That runs $489.",
+        "time_in_call_secs": 15
+      },
+      {
+        "role": "agent",
+        "message": "Is that truly all-in? Please identify parts, labor, shop supplies, diagnostic, disposal, and tax separately.",
+        "time_in_call_secs": 22
+      },
+      {
+        "role": "user",
+        "message": "That $489 was parts and labor — parts are $285 and labor is $204. Shop supplies are $45, diagnostic and disposal are $0, and tax is $40.",
+        "time_in_call_secs": 36
+      },
+      {
+        "role": "agent",
+        "message": "Thank you. Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds.",
+        "time_in_call_secs": 52
+      },
+      {
+        "role": "user",
+        "message": "All-in it's $574. Warranty is 90 days, parts and labor. We can get you in Thursday morning, and the quote is good for 7 days.",
+        "time_in_call_secs": 64
+      },
+      {
+        "role": "agent",
+        "message": "Confirmed: $574 all-in with the 90-day warranty. I'll present that exact quote to the customer.",
+        "time_in_call_secs": 78
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "parts": { "value": 285 },
+        "labor": { "value": 204 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 45 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 40 },
+        "all_in_total": { "value": 574 },
+        "warranty": { "value": "90 days, parts and labor" },
+        "earliest_appointment": { "value": "2026-07-23" },
+        "quote_expiration": { "value": "2026-07-26" }
+      }
+    },
+    "metadata": { "call_duration_secs": 84 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 285,
+        "labor": 204,
+        "diagnostic": 0,
+        "shop_supply": 45,
+        "disposal": 0,
+        "tax": 40
+      },
+      "total": 574,
+      "subtotal": 534,
+      "status": "complete",
+      "completeness": 0.9090909090909091,
+      "confirmedInCall": true,
+      "warnings": [],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "all_in_total",
+        "warranty"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

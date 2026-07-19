@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { apiHandler } from "@/lib/wrenchbid/server/api.server";
 import { getDatabase } from "@/lib/wrenchbid/server/db.server";
 import { getElevenLabsConversationAudio } from "@/lib/wrenchbid/server/elevenlabs.server";
-import { requireProjectSession } from "@/lib/wrenchbid/server/project-session.server";
+import { requireExistingProjectSession } from "@/lib/wrenchbid/server/project-session.server";
 
 export const Route = createFileRoute("/api/calls/$id/audio")({
   server: {
     handlers: {
       GET: ({ request, params }) =>
         apiHandler(async () => {
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const sql = getDatabase();
           const [call] = await sql<Array<{ provider_conversation_id: string | null }>>`
             SELECT call.provider_conversation_id

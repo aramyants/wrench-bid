@@ -2,26 +2,73 @@ import { createHash, randomUUID } from "node:crypto";
 import type postgres from "postgres";
 import { z } from "zod";
 import {
-  findSupportingShopTurn,
-  type QuoteEvidenceCandidate,
-  type QuoteEvidenceKind,
-} from "../quote-evidence";
-import { AUTO_REPAIR_VERTICAL } from "../verticals/auto-repair";
+  extractDataCollection,
+  inferOutcome,
+  namedValue,
+  normalizeQuote,
+  normalizeTranscript,
+  stringValue,
+  type NormalizedTurn,
+} from "../call-normalization";
 import { completeCampaignIfResolved } from "./campaigns.server";
 import { getDatabase } from "./db.server";
+import { deferElevenLabsInitiationFailure } from "./provider-failures.server";
+
+export const MAX_ELEVENLABS_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
+
+function payloadTooLargeResponse() {
+  return new Response("Webhook payload is too large", { status: 413 });
+}
+
+export async function readElevenLabsWebhookBody(
+  request: Request,
+  maximumBytes = MAX_ELEVENLABS_WEBHOOK_BODY_BYTES,
+) {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    const normalizedLength = contentLength.trim();
+    if (!/^\d+$/.test(normalizedLength)) {
+      throw new Response("Malformed Content-Length header", { status: 400 });
+    }
+    const declaredBytes = Number(normalizedLength);
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maximumBytes) {
+      throw payloadTooLargeResponse();
+    }
+  }
+
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maximumBytes) {
+        await reader.cancel();
+        throw payloadTooLargeResponse();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, receivedBytes));
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    throw new Response("Webhook payload must be valid UTF-8", { status: 400 });
+  }
+}
 
 const WebhookSchema = z.object({
   type: z.string().min(1),
   event_timestamp: z.union([z.number(), z.string()]),
   data: z.record(z.string(), z.unknown()),
 });
-
-type NormalizedTurn = {
-  index: number;
-  speaker: "agent" | "shop";
-  text: string;
-  timeSeconds: number;
-};
 
 type WebhookOwner = {
   id: string;
@@ -33,54 +80,6 @@ type WebhookOwner = {
 
 const SUPPORTED_EVENT_TYPES = new Set(["post_call_transcription", "call_initiation_failure"]);
 
-function unwrap(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  for (const key of ["value", "result", "data_collection_result"]) {
-    if (record[key] !== undefined) return unwrap(record[key]);
-  }
-  return value;
-}
-
-function collection(data: Record<string, unknown>) {
-  const analysis = (data.analysis ?? {}) as Record<string, unknown>;
-  const raw = (analysis.data_collection_results ?? {}) as Record<string, unknown>;
-  return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, unwrap(value)]));
-}
-
-function named(values: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    if (values[key] != null) return values[key];
-  }
-  return undefined;
-}
-
-function moneyValue(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
-  if (typeof value !== "string") return undefined;
-  const parsed = Number(value.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function stringValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 1000) : undefined;
-}
-
-function stringArray(value: unknown) {
-  if (Array.isArray(value))
-    return value.map(stringValue).filter((item): item is string => Boolean(item));
-  const single = stringValue(value);
-  return single ? [single] : [];
-}
-
-function dateValue(value: unknown) {
-  const text = stringValue(value);
-  const match = text ? /\b(20\d{2})-(\d{2})-(\d{2})\b/.exec(text) : null;
-  if (!match) return undefined;
-  const normalized = `${match[1]}-${match[2]}-${match[3]}`;
-  return Number.isNaN(new Date(`${normalized}T00:00:00.000Z`).getTime()) ? undefined : normalized;
-}
-
 function signedCallId(data: Record<string, unknown>) {
   const initiation = (data.conversation_initiation_client_data ?? {}) as Record<string, unknown>;
   const dynamic = (initiation.dynamic_variables ?? {}) as Record<string, unknown>;
@@ -90,7 +89,7 @@ function signedCallId(data: Record<string, unknown>) {
     dynamic.wrenchbid_call_id ??
       metadataDynamic.wrenchbid_call_id ??
       data.wrenchbid_call_id ??
-      named(collection(data), "wrenchbid_call_id"),
+      namedValue(extractDataCollection(data), "wrenchbid_call_id"),
   );
   return candidate &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)
@@ -118,52 +117,6 @@ async function resolveWebhookOwner(
   return owner;
 }
 
-function normalizeTranscript(value: unknown): NormalizedTurn[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((turn, index) => {
-      if (!turn || typeof turn !== "object") return null;
-      const record = turn as Record<string, unknown>;
-      const text = stringValue(record.message ?? record.text);
-      if (!text) return null;
-      return {
-        index,
-        speaker: record.role === "agent" ? ("agent" as const) : ("shop" as const),
-        text,
-        timeSeconds: Number(record.time_in_call_secs ?? record.time_seconds ?? index * 5) || 0,
-      };
-    })
-    .filter((turn): turn is NormalizedTurn => turn !== null);
-}
-
-function inferOutcome(
-  data: Record<string, unknown>,
-  values: Record<string, unknown>,
-  turns: NormalizedTurn[],
-) {
-  const explicit = stringValue(
-    named(values, "call_outcome", "outcome", "terminal_outcome"),
-  )?.toLowerCase();
-  if (explicit?.includes("callback")) return "callback_commitment" as const;
-  if (explicit?.includes("declin") || explicit?.includes("refus")) return "declined" as const;
-  if (explicit?.includes("no_answer") || explicit?.includes("no answer"))
-    return "no_answer" as const;
-  if (explicit?.includes("fail")) return "failed" as const;
-  if (explicit?.includes("quote")) return "quote" as const;
-
-  const transcript = turns
-    .map((turn) => turn.text)
-    .join(" ")
-    .toLowerCase();
-  if (/call (you|the customer) back|callback/.test(transcript))
-    return "callback_commitment" as const;
-  if (/cannot provide|won't provide|decline/.test(transcript)) return "declined" as const;
-  if (moneyValue(named(values, "all_in_total", "total", "quote_total")) != null)
-    return "quote" as const;
-  const status = stringValue(data.status)?.toLowerCase();
-  return status === "failed" ? ("failed" as const) : ("declined" as const);
-}
-
 async function persistQuote(
   transaction: postgres.TransactionSql,
   input: {
@@ -178,72 +131,12 @@ async function persistQuote(
     SELECT id FROM quotes WHERE call_id = ${input.callId}::uuid LIMIT 1
   `;
   if (existing) return existing.id;
-  const parts = moneyValue(named(input.values, "parts", "parts_total"));
-  const labor = moneyValue(named(input.values, "labor", "labor_total"));
-  const diagnostic = moneyValue(named(input.values, "diagnostic_fee", "diagnostic"));
-  const shopSupply = moneyValue(named(input.values, "shop_supply_fee", "shop_supplies"));
-  const disposal = moneyValue(named(input.values, "disposal_fee", "disposal"));
-  const tax = moneyValue(named(input.values, "tax", "sales_tax"));
-  const total = moneyValue(named(input.values, "all_in_total", "total", "quote_total"));
-  const warrantyText = stringValue(named(input.values, "warranty", "warranty_text"));
-  const warrantyDays = moneyValue(named(input.values, "warranty_days"));
-  const earliestDate = dateValue(named(input.values, "earliest_appointment", "earliest_date"));
-  const validUntil = dateValue(named(input.values, "quote_expiration", "valid_until"));
-  const conditions = stringArray(named(input.values, "conditions", "quote_conditions"));
-  const present = [
-    parts,
-    labor,
-    diagnostic,
-    shopSupply,
-    tax,
-    total,
-    warrantyText,
-    earliestDate,
-    validUntil,
-    conditions.length ? conditions : undefined,
-  ].filter((value) => value !== undefined).length;
-  const completeness = present / AUTO_REPAIR_VERTICAL.requiredQuoteFields.length;
-  const quoteId = randomUUID();
-  const items = [
-    ["parts", "Parts", parts],
-    ["labor", "Labor", labor],
-    ["diagnostic", "Diagnostic fee", diagnostic],
-    ["shop_supply", "Shop-supply fee", shopSupply],
-    ["disposal", "Disposal fee", disposal],
-    ["tax", "Tax", tax],
-  ] as const;
-  const rawEvidenceCandidates: Array<[string, QuoteEvidenceKind, string | number | undefined]> = [
-    ["parts", "money", parts],
-    ["labor", "money", labor],
-    ["diagnostic_fee", "money", diagnostic],
-    ["shop_supply_fee", "money", shopSupply],
-    ["disposal_fee", "money", disposal],
-    ["tax", "money", tax],
-    ["all_in_total", "money", total],
-    ["warranty", "text", warrantyText],
-    ["warranty_days", "number", warrantyDays],
-    ["earliest_appointment", "date", earliestDate],
-    ["quote_expiration", "date", validUntil],
-  ];
-  const evidenceCandidates: QuoteEvidenceCandidate[] = rawEvidenceCandidates.flatMap(
-    ([fieldName, kind, value]) => (value == null ? [] : [{ fieldName, kind, value }]),
-  );
-  for (const condition of conditions) {
-    evidenceCandidates.push({ fieldName: "conditions", kind: "text", value: condition });
-  }
-  const evidenceMatches = evidenceCandidates.flatMap((candidate) => {
-    const turn = findSupportingShopTurn(input.turns, candidate);
-    return turn ? [{ fieldName: candidate.fieldName, turn }] : [];
+  const quote = normalizeQuote({
+    values: input.values,
+    turns: input.turns,
+    revised: input.revised,
   });
-  const totalConfirmedInTranscript = evidenceMatches.some(
-    (match) => match.fieldName === "all_in_total",
-  );
-  const warnings = [
-    ...(input.revised ? ["revised_after_negotiation"] : []),
-    ...(total == null ? ["missing_all_in_total"] : []),
-    ...(total != null && !totalConfirmedInTranscript ? ["missing_total_transcript_evidence"] : []),
-    ...(completeness < 0.9 ? ["non_comparable_scope"] : []),
-  ];
+  const quoteId = randomUUID();
 
   await transaction`
     INSERT INTO quotes (
@@ -254,31 +147,30 @@ async function persistQuote(
       ${quoteId}::uuid,
       ${input.callId}::uuid,
       ${input.shopId}::uuid,
-      ${total != null && completeness >= 0.9 ? "complete" : "incomplete"},
-      ${parts != null || labor != null ? (parts ?? 0) + (labor ?? 0) + (diagnostic ?? 0) + (shopSupply ?? 0) + (disposal ?? 0) : null},
-      ${tax ?? null},
-      ${total ?? null},
-      'USD',
-      ${warrantyText ?? null},
-      ${warrantyDays ?? null},
-      ${earliestDate ?? null},
-      ${validUntil ?? null},
-      ${completeness},
-      ${transaction.json(conditions)},
-      ${total != null && totalConfirmedInTranscript},
-      ${transaction.json(warnings)}
+      ${quote.status},
+      ${quote.subtotal},
+      ${quote.tax ?? null},
+      ${quote.total ?? null},
+      ${quote.currency ?? "USD"},
+      ${quote.warrantyText ?? null},
+      ${quote.warrantyDays ?? null},
+      ${quote.earliestDate ?? null},
+      ${quote.validUntil ?? null},
+      ${quote.completeness},
+      ${transaction.json(quote.conditions)},
+      ${quote.confirmedInCall},
+      ${transaction.json(quote.warnings)}
     )
   `;
   let sortOrder = 0;
-  for (const [category, description, amount] of items) {
-    if (amount == null) continue;
+  for (const { category, description, amount } of quote.items) {
     await transaction`
       INSERT INTO quote_items (id, quote_id, category, description, amount, sort_order)
       VALUES (${randomUUID()}::uuid, ${quoteId}::uuid, ${category}, ${description}, ${amount}, ${sortOrder++})
     `;
   }
 
-  for (const { fieldName, turn } of evidenceMatches) {
+  for (const { fieldName, turn } of quote.evidence) {
     await transaction`
       INSERT INTO evidence_spans (
         id, call_id, quote_id, field_name, turn_index, speaker, transcript_text, time_seconds
@@ -302,7 +194,7 @@ async function processTranscription(data: Record<string, unknown>, call: Webhook
   if (!conversationId) return "ignored" as const;
   const sql = getDatabase();
   const turns = normalizeTranscript(data.transcript);
-  const values = collection(data);
+  const values = extractDataCollection(data);
   const outcome = inferOutcome(data, values, turns);
   const duration = Math.round(
     Number(
@@ -405,6 +297,19 @@ export async function ingestElevenLabsWebhook(rawBody: string) {
   const payload = WebhookSchema.parse(rawPayload);
   const owner = await resolveWebhookOwner(payload.data);
   if (!owner) {
+    if (payload.type === "call_initiation_failure") {
+      const conversationId = stringValue(payload.data.conversation_id);
+      if (!conversationId) {
+        throw new Response("Call-initiation failure is missing a conversation ID", {
+          status: 422,
+        });
+      }
+      await deferElevenLabsInitiationFailure(
+        conversationId,
+        stringValue(payload.data.failure_reason) ?? "unknown",
+      );
+      return { duplicate: false, status: "deferred" as const };
+    }
     if (!SUPPORTED_EVENT_TYPES.has(payload.type)) {
       return { duplicate: false, status: "ignored" as const };
     }

@@ -1,3 +1,5 @@
+import { subtractAmounts } from "./money";
+
 export type CounterAgentId = "budget" | "precision" | "queencity";
 
 export type CounterAgentTurn = {
@@ -310,7 +312,7 @@ export function buildNegotiationConversation(input: {
     turns,
     before: quote.total,
     after: revisedTotal,
-    savings: Math.max(0, quote.total - revisedTotal),
+    savings: Math.max(0, subtractAmounts(quote.total, revisedTotal)),
     outcome: revised ? ("revised" as const) : ("unchanged" as const),
     leverageAccepted: genuineLeverage,
   };

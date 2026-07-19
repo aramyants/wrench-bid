@@ -8,7 +8,7 @@ import { getDatabase } from "@/lib/wrenchbid/server/db.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
 
 const E164PhoneSchema = z
@@ -48,7 +48,7 @@ export const Route = createFileRoute("/api/requests/$id/shops")({
       POST: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const input = ManualShopSchema.parse(await request.json());
           const sql = getDatabase();
           const shop = await sql.begin(async (transaction) => {
@@ -133,15 +133,22 @@ export const Route = createFileRoute("/api/requests/$id/shops")({
             }
 
             const [link] = await transaction`
-              INSERT INTO session_shops (session_id, shop_id)
-              SELECT session.id, shop.id
+              INSERT INTO session_shops (
+                session_id, shop_id, verified_phone, phone_verified_at,
+                phone_verification_method
+              )
+              SELECT session.id, shop.id, ${input.phone}, now(), 'user_attestation'
               FROM repair_sessions session
               JOIN shops shop ON shop.id = ${row.id as string}::uuid
               WHERE session.id = ${params.id}::uuid
                 AND session.project_id = ${project.projectId}::uuid
                 AND session.deleted_at IS NULL
                 AND shop.project_id = ${project.projectId}::uuid
-              ON CONFLICT (session_id, shop_id) DO NOTHING
+              ON CONFLICT (session_id, shop_id) DO UPDATE
+              SET
+                verified_phone = EXCLUDED.verified_phone,
+                phone_verified_at = EXCLUDED.phone_verified_at,
+                phone_verification_method = EXCLUDED.phone_verification_method
               RETURNING shop_id
             `;
             if (!link) {
@@ -185,7 +192,7 @@ export const Route = createFileRoute("/api/requests/$id/shops")({
       PATCH: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const input = VerifyShopPhoneSchema.parse(await request.json());
           const sql = getDatabase();
           const shop = await sql.begin(async (transaction) => {
@@ -243,6 +250,16 @@ export const Route = createFileRoute("/api/requests/$id/shops")({
                 id, name, phone, phone_verified, address, website, hours, discovery_source
             `;
             if (!row) throw new Response("Shop not found", { status: 404 });
+
+            await transaction`
+              UPDATE session_shops
+              SET
+                verified_phone = ${input.phone},
+                phone_verified_at = now(),
+                phone_verification_method = 'user_attestation'
+              WHERE session_id = ${params.id}::uuid
+                AND shop_id = ${input.shopId}::uuid
+            `;
 
             await transaction`
               INSERT INTO audit_events (

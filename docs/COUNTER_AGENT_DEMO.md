@@ -2,9 +2,9 @@
 
 ## What `/demo/arena` is
 
-`/demo/arena` is a deterministic, synthetic agent-to-agent presentation. It runs entirely in the browser against three rule-driven Counter Agent profiles. It does not call ElevenLabs, Tavily, Twilio, a database, or a real business.
+`/demo/arena` is a deterministic, synthetic agent-to-agent presentation against three rule-driven Counter Agent profiles. It does not dial a phone number, contact a real business, or persist quotes to the production database.
 
-The optional audio buttons use the browser's device speech synthesis. They are a voice preview of the generated turns, not an ElevenLabs call or recording. The page labels both boundaries so a presenter should not describe it as a live provider call.
+**Run 3 voiced scenarios** and **Start voiced negotiation** request fixed turns from the server one at a time. ElevenLabs generates each turn with distinct buyer/shop voices; the browser reveals the message as playback begins and waits for it to finish before requesting the response. This is provider TTS over controlled content, not a phone call or full-duplex Conversational AI session.
 
 The arena exists to demonstrate the product logic reliably:
 
@@ -15,6 +15,14 @@ The arena exists to demonstrate the product logic reliably:
 - the outcome changes because the target's private concession rule accepts that leverage.
 
 The implementation is in `src/lib/wrenchbid/counter-agents.ts` and `src/routes/demo.arena.tsx`. It is a self-contained fixture: running it does not persist quotes or modify the production database.
+
+The arena also offers an optional **Start real-time simulation** action. It resolves a live Tavily
+repair-shop source, runs the configured WrenchBid caller through ElevenLabs' streaming conversation
+simulator against an LLM-driven shop counterpart, synthesizes each turn independently, and sends
+newline-delimited events to the browser. The browser reveals a message as its audio starts and waits
+for playback to finish before revealing the response. It does not dial a number or create a PSTN
+call. The linked Tavily result supports only public business context; displayed prices remain
+explicitly labeled controlled simulation data.
 
 ## Demo data and provenance
 
@@ -44,13 +52,12 @@ The closer round targets Precision's original **$616.69** quote. It cites stored
 1. Open `http://localhost:3000/demo/arena`.
 2. Point out the **Synthetic counterparties - no business called** label.
 3. Show the single confirmed RepairSpec; every lane receives that exact scope.
-4. Select **Run three calls** and compare the hidden-fee, transparent, and evasive behaviors.
+4. Select **Run 3 voiced scenarios** and compare the hidden-fee, transparent, and evasive behaviors. They run sequentially so the three conversations never speak over one another.
 5. Confirm that every lane ends with a spoken all-in total, warranty, appointment, and quote-validity term.
 6. Explain that the policy details are presenter aids and are not given to the WrenchBid buyer agent.
-7. Select **Run leverage negotiation**.
+7. Select **Start voiced negotiation**.
 8. Trace the evidence: stored `q_budget` at $574.00, Precision before at $616.69, revised result at $585.00.
-9. Optionally play the device-voice previews, clearly identifying them as browser speech synthesis.
-10. Open the full comparison to continue the recorded end-to-end workflow.
+9. Open the full comparison to continue the recorded end-to-end workflow.
 
 Resetting and rerunning produces the same business outcome by design, which makes the arena suitable for a stable product presentation and regression testing.
 
@@ -84,8 +91,14 @@ Before any provider-backed run:
 
 ## Known limitations
 
-- No real audio transport, latency, interruption, barge-in, voicemail, or provider failure is exercised by `/demo/arena`.
+- The three comparison scenarios and evidence-bound negotiation exercise provider TTS turn by
+  turn. They do not exercise live call transport, interruption, barge-in, voicemail, or full-duplex
+  Conversational AI behavior.
+- The optional AI simulation exercises the configured caller prompt, incremental provider turns,
+  per-turn voice generation, and Tavily provenance, but remains a provider simulation rather than
+  a live full-duplex audio transport.
 - The arena's quote conversations are generated in memory and are not database records.
-- Browser voices vary by operating system and may be unavailable.
+- Voiced playback requires a configured `ELEVENLABS_API_KEY`; the server accepts only fixed arena
+  scenarios and valid turn indices, and rate-limits generation.
 - The live product uses post-call evidence, so a provider call can remain pending until its verified webhook arrives.
 - The campaign median is the only current pricing benchmark; do not present it as market-wide repair-price data.

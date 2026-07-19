@@ -2,6 +2,7 @@
 // Real adapters will replace mocks without touching UI code.
 
 import type { RepairSpec, Shop, Quote, Call } from "../types";
+import { DEMO_INTAKE_TURNS } from "../demo-intake";
 
 export interface OpenAIService {
   extractRepairSpec(fileName: string): Promise<Partial<RepairSpec>>;
@@ -26,53 +27,11 @@ export interface TavilyService {
 
 // --- Mock implementations ---
 
-const INTAKE_SCRIPT: Array<{
-  role: "agent" | "customer";
-  text: string;
-  delayMs: number;
-  fieldUpdate?: { path: string; value: unknown };
-}> = [
-  {
-    role: "agent",
-    text: "Hi — I'm confirming the details for your Camry brake job. Quick questions, then we'll call shops.",
-    delayMs: 1200,
-  },
-  {
-    role: "agent",
-    text: "The estimate reads 52,000 miles. Is your current mileage close to that, or higher?",
-    delayMs: 3400,
-  },
-  {
-    role: "customer",
-    text: "It's closer to 62,000 now.",
-    delayMs: 2200,
-    fieldUpdate: { path: "vehicle.mileage", value: 62000 },
-  },
-  {
-    role: "agent",
-    text: "Got it — noting 62,000. Are you okay with premium aftermarket pads and rotors?",
-    delayMs: 2800,
-  },
-  { role: "customer", text: "Yes, premium aftermarket is fine.", delayMs: 1800 },
-  { role: "agent", text: "When do you need this done by?", delayMs: 1400 },
-  {
-    role: "customer",
-    text: "Within a week.",
-    delayMs: 1400,
-    fieldUpdate: { path: "completionByDays", value: 7 },
-  },
-  {
-    role: "agent",
-    text: "Perfect. I have everything I need. Review the spec on the next screen.",
-    delayMs: 2000,
-  },
-];
-
 export const mockElevenLabs: ElevenLabsService = {
   async startIntakeConversation(_spec, onTurn) {
     let cancelled = false;
     let acc = 0;
-    for (const step of INTAKE_SCRIPT) {
+    for (const step of DEMO_INTAKE_TURNS) {
       acc += step.delayMs;
       setTimeout(() => {
         if (cancelled) return;
@@ -128,4 +87,4 @@ export const mockTavily: TavilyService = {
   },
 };
 
-export const INTAKE_TOTAL_MS = INTAKE_SCRIPT.reduce((a, s) => a + s.delayMs, 0);
+export const INTAKE_TOTAL_MS = DEMO_INTAKE_TURNS.reduce((a, s) => a + s.delayMs, 0);

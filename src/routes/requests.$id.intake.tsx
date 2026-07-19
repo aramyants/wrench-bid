@@ -1,15 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/wrenchbid/AppShell";
+import { DEMO_INTAKE_TURNS, type DemoIntakeTurn } from "@/lib/wrenchbid/demo-intake";
 import { useWrenchStore } from "@/lib/wrenchbid/store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, PhoneOff, ArrowRight, CheckCircle2, Circle } from "lucide-react";
-import { mockElevenLabs } from "@/lib/wrenchbid/services";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/wrenchbid/StatusPill";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
-import { getVoiceToken, updateRepairSpec } from "@/lib/wrenchbid/api";
+import { getVoiceToken, registerVoiceConversation, updateRepairSpec } from "@/lib/wrenchbid/api";
 import { useRequestSync } from "@/hooks/use-live-sync";
 import type { RepairSpec } from "@/lib/wrenchbid/types";
 
@@ -22,26 +22,90 @@ export const Route = createFileRoute("/requests/$id/intake")({
 
 type Turn = { role: "agent" | "customer"; text: string; at: number };
 
+const NUMERIC_REPAIR_SPEC_PATHS = new Set(["vehicle.year", "vehicle.mileage", "completionByDays"]);
+
+async function fetchDemoIntakeAudio(turnIndex: number, signal: AbortSignal) {
+  const response = await fetch("/api/demo/intake-voice", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ turnIndex }),
+    signal,
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(message || `The intake voice failed (${response.status})`);
+  }
+  return response.arrayBuffer();
+}
+
+function coerceRepairSpecToolValue(path: string, value: unknown) {
+  if (NUMERIC_REPAIR_SPEC_PATHS.has(path)) {
+    const normalized = typeof value === "string" ? value.replaceAll(",", "").trim() : value;
+    const numeric =
+      typeof normalized === "number"
+        ? normalized
+        : typeof normalized === "string" && normalized
+          ? Number(normalized)
+          : Number.NaN;
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      throw new Error(`The intake agent sent an invalid number for ${path}`);
+    }
+    return numeric;
+  }
+
+  if (path === "operations") {
+    if (Array.isArray(value) && value.length > 0) return value;
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error("The intake agent sent invalid repair operations");
+    }
+    const trimmed = value.trim();
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error("The intake agent sent invalid repair operations");
+      }
+      return parsed;
+    } catch (error) {
+      if (error instanceof SyntaxError) return [trimmed];
+      throw error;
+    }
+  }
+
+  if (typeof value === "string" || typeof value === "number" || Array.isArray(value)) {
+    return value;
+  }
+  throw new Error("The intake agent sent an invalid field update");
+}
+
 function IntakePage() {
   const { id } = Route.useParams();
   const nav = useNavigate();
   const specs = useWrenchStore((s) => s.specs);
   const session = useWrenchStore((s) => s.sessions[id]);
+  const setSpec = useWrenchStore((s) => s.setSpec);
   const sync = useRequestSync(id);
   const spec = useMemo(() => Object.values(specs).find((s) => s.sessionId === id), [id, specs]);
 
   const [connected, setConnected] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [agentSpeaking, setAgentSpeaking] = useState(false);
+  const [activeRole, setActiveRole] = useState<Turn["role"] | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [duration, setDuration] = useState(0);
-  const endRef = useRef<null | (() => void)>(null);
+  const [completed, setCompleted] = useState(false);
+  const [error, setError] = useState<string>();
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
+  const mountedRef = useRef(true);
   const startedAtRef = useRef<number>(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const agentSpeaking = activeRole === "agent";
+  const audioPlaying = activeRole !== null;
 
   useEffect(() => {
     if (!connected) return;
-    startedAtRef.current = Date.now();
     const t = setInterval(
       () => setDuration(Math.floor((Date.now() - startedAtRef.current) / 1000)),
       250,
@@ -53,22 +117,144 @@ function IntakePage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns.length]);
 
-  async function connect() {
-    if (!spec) return;
-    setConnected(true);
-    setTurns([]);
-    const conv = await mockElevenLabs.startIntakeConversation(spec, ({ role, text }) => {
-      setAgentSpeaking(role === "agent");
-      setTurns((prev) => [...prev, { role, text, at: Date.now() - startedAtRef.current }]);
-      setTimeout(() => setAgentSpeaking(false), 1200);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      runIdRef.current += 1;
+      abortRef.current?.abort();
+      activeSourceRef.current?.stop();
+      const context = audioContextRef.current;
+      audioContextRef.current = null;
+      gainNodeRef.current = null;
+      if (context && context.state !== "closed") void context.close();
+    };
+  }, []);
+
+  function ensureAudioContext() {
+    let context = audioContextRef.current;
+    if (!context || context.state === "closed") {
+      context = new AudioContext();
+      const gain = context.createGain();
+      gain.gain.value = muted ? 0 : 1;
+      gain.connect(context.destination);
+      audioContextRef.current = context;
+      gainNodeRef.current = gain;
+    }
+    return context;
+  }
+
+  function playTurn(
+    context: AudioContext,
+    audio: AudioBuffer,
+    turn: DemoIntakeTurn,
+    runId: number,
+    specId: string,
+  ) {
+    return new Promise<void>((resolve, reject) => {
+      if (runIdRef.current !== runId) {
+        resolve();
+        return;
+      }
+      const source = context.createBufferSource();
+      source.buffer = audio;
+      source.connect(gainNodeRef.current ?? context.destination);
+      source.onended = () => {
+        if (activeSourceRef.current === source) activeSourceRef.current = null;
+        if (mountedRef.current && runIdRef.current === runId) setActiveRole(null);
+        resolve();
+      };
+      activeSourceRef.current = source;
+      try {
+        source.start();
+      } catch (reason) {
+        reject(reason);
+        return;
+      }
+      setActiveRole(turn.role);
+      setTurns((previous) => [
+        ...previous,
+        { role: turn.role, text: turn.text, at: Date.now() - startedAtRef.current },
+      ]);
+      if (turn.fieldUpdate) {
+        useWrenchStore
+          .getState()
+          .updateSpecField(specId, turn.fieldUpdate.path, turn.fieldUpdate.value, "voice");
+      }
     });
-    endRef.current = conv.end;
+  }
+
+  async function connect() {
+    if (!spec || connected) return;
+    if (spec.status === "confirmed") {
+      setSpec({
+        ...spec,
+        status: "draft",
+        confirmedAt: undefined,
+        specHash: undefined,
+      });
+    }
+    const context = ensureAudioContext();
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    startedAtRef.current = Date.now();
+    setDuration(0);
+    setTurns([]);
+    setCompleted(false);
+    setError(undefined);
+    setActiveRole(null);
+    setConnected(true);
+
+    try {
+      await context.resume();
+      let pendingAudio = fetchDemoIntakeAudio(0, controller.signal);
+      for (let index = 0; index < DEMO_INTAKE_TURNS.length; index += 1) {
+        const bytes = await pendingAudio;
+        if (runIdRef.current !== runId) return;
+        const decoded = await context.decodeAudioData(bytes.slice(0));
+        const nextAudio =
+          index + 1 < DEMO_INTAKE_TURNS.length
+            ? fetchDemoIntakeAudio(index + 1, controller.signal)
+            : undefined;
+        if (nextAudio) void nextAudio.catch(() => undefined);
+        await playTurn(context, decoded, DEMO_INTAKE_TURNS[index], runId, spec.id);
+        if (runIdRef.current !== runId) return;
+        if (nextAudio) pendingAudio = nextAudio;
+      }
+      if (runIdRef.current === runId) {
+        setConnected(false);
+        setCompleted(true);
+      }
+    } catch (reason) {
+      if (controller.signal.aborted || runIdRef.current !== runId) return;
+      setError(reason instanceof Error ? reason.message : "The intake voice failed");
+      setConnected(false);
+      setActiveRole(null);
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
   }
 
   function disconnect() {
-    endRef.current?.();
+    runIdRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    activeSourceRef.current?.stop();
+    activeSourceRef.current = null;
     setConnected(false);
-    setAgentSpeaking(false);
+    setActiveRole(null);
+  }
+
+  function toggleMuted() {
+    setMuted((current) => {
+      const next = !current;
+      const context = audioContextRef.current;
+      const gain = gainNodeRef.current;
+      if (context && gain) gain.gain.setValueAtTime(next ? 0 : 1, context.currentTime);
+      return next;
+    });
   }
 
   const checklist = useMemo(() => {
@@ -159,7 +345,15 @@ function IntakePage() {
               <div>
                 <div className="font-medium">WrenchBid Intake Agent</div>
                 <div className="mono text-xs text-muted-foreground">
-                  {connected ? (agentSpeaking ? "Speaking…" : "Listening…") : "Ready"}
+                  {connected
+                    ? activeRole === "agent"
+                      ? "Agent speaking…"
+                      : activeRole === "customer"
+                        ? "Customer replying…"
+                        : "Preparing ElevenLabs voice…"
+                    : completed
+                      ? "Interview complete"
+                      : "Ready"}
                 </div>
               </div>
             </div>
@@ -167,13 +361,15 @@ function IntakePage() {
               <Pill tone={connected ? "lime" : "muted"}>
                 {connected
                   ? `● ${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, "0")}`
-                  : "Not connected"}
+                  : completed
+                    ? "Complete"
+                    : "Not connected"}
               </Pill>
               {connected ? (
                 <>
-                  <Button size="sm" variant="secondary" onClick={() => setMuted((m) => !m)}>
+                  <Button size="sm" variant="secondary" onClick={toggleMuted}>
                     {muted ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />}
-                    {muted ? "Muted" : "Mute"}
+                    {muted ? "Unmute" : "Mute"}
                   </Button>
                   <Button size="sm" variant="destructive" onClick={disconnect}>
                     <PhoneOff className="mr-2 h-4 w-4" /> Hang up
@@ -185,7 +381,7 @@ function IntakePage() {
                   onClick={connect}
                   className="bg-lime text-lime-foreground hover:brightness-95"
                 >
-                  Connect
+                  {completed ? "Replay interview" : "Connect"}
                 </Button>
               )}
             </div>
@@ -199,7 +395,16 @@ function IntakePage() {
                 className="w-1 rounded-full bg-lime/70"
                 animate={{
                   height: connected
-                    ? [4, 4 + (agentSpeaking ? Math.random() * 40 : Math.random() * 12), 4]
+                    ? [
+                        4,
+                        4 +
+                          (audioPlaying
+                            ? agentSpeaking
+                              ? Math.random() * 40
+                              : Math.random() * 24
+                            : 0),
+                        4,
+                      ]
                     : 4,
                 }}
                 transition={{ duration: 0.6 + (i % 5) * 0.05, repeat: Infinity, ease: "easeInOut" }}
@@ -249,8 +454,17 @@ function IntakePage() {
             </AnimatePresence>
             <div ref={bottomRef} />
           </div>
+          {error && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
+            >
+              {error}
+            </div>
+          )}
           <p className="mono mt-2 text-[10px] uppercase tracking-widest text-amber">
-            Mock adapter · not a live phone call
+            Scripted ElevenLabs voices · no phone call
           </p>
         </div>
 
@@ -318,9 +532,15 @@ function LiveIntakePage({ spec }: { spec: RepairSpec }) {
   const startedAt = useRef(0);
 
   const conversation = useConversation({
-    onConnect: () => {
+    onConnect: ({ conversationId }) => {
       startedAt.current = Date.now();
       setError(undefined);
+      void registerVoiceConversation(spec.sessionId, conversationId).catch(() => {
+        conversation.endSession();
+        setError(
+          "The voice session could not be registered for privacy-safe deletion, so it was ended.",
+        );
+      });
     },
     onMessage: (event) => {
       const message = event as unknown as Record<string, unknown>;
@@ -346,13 +566,8 @@ function LiveIntakePage({ spec }: { spec: RepairSpec }) {
     clientTools: {
       update_repair_spec: async (parameters: Record<string, unknown>) => {
         const path = typeof parameters.path === "string" ? parameters.path : "";
-        const value = parameters.value;
-        if (
-          !path ||
-          (typeof value !== "string" && typeof value !== "number" && !Array.isArray(value))
-        ) {
-          throw new Error("The intake agent sent an invalid field update");
-        }
+        if (!path) throw new Error("The intake agent sent an invalid field update");
+        const value = coerceRepairSpecToolValue(path, parameters.value);
         const updated = await updateRepairSpec(spec.sessionId, path, value, "voice");
         setSpec(updated);
         return "RepairSpec field saved";
@@ -403,6 +618,17 @@ function LiveIntakePage({ spec }: { spec: RepairSpec }) {
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Microphone or voice connection failed");
+    }
+  }
+
+  async function disconnect() {
+    setError(undefined);
+    try {
+      await conversation.endSession();
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "The voice session could not end cleanly",
+      );
     }
   }
 
@@ -460,7 +686,7 @@ function LiveIntakePage({ spec }: { spec: RepairSpec }) {
                     )}
                     {conversation.isMuted ? "Unmute" : "Mute"}
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={() => conversation.endSession()}>
+                  <Button size="sm" variant="destructive" onClick={() => void disconnect()}>
                     <PhoneOff className="mr-2 h-4 w-4" /> End
                   </Button>
                 </>
@@ -503,7 +729,11 @@ function LiveIntakePage({ spec }: { spec: RepairSpec }) {
             ))}
           </div>
           {error && (
-            <div className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
+            >
               {error}
             </div>
           )}

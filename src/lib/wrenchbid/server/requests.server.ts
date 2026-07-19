@@ -215,8 +215,8 @@ export async function getRequestSnapshot(
     SELECT
       s.id,
       s.name,
-      s.phone,
-      s.phone_verified,
+      COALESCE(ss.verified_phone, s.phone) AS phone,
+      (ss.verified_phone IS NOT NULL) AS phone_verified,
       s.address,
       s.website,
       s.hours,
@@ -415,8 +415,87 @@ export async function confirmRepairSpec(projectId: string, sessionId: string) {
   });
 }
 
+export async function registerIntakeConversation(
+  projectId: string,
+  sessionId: string,
+  providerConversationId: string,
+) {
+  const sql = getDatabase();
+  return sql.begin(async (transaction) => {
+    const [inserted] = await transaction`
+      INSERT INTO intake_conversations (
+        id, session_id, provider, provider_conversation_id
+      )
+      SELECT ${randomUUID()}::uuid, session.id, 'elevenlabs', ${providerConversationId}
+      FROM repair_sessions session
+      WHERE session.id = ${sessionId}::uuid
+        AND session.project_id = ${projectId}::uuid
+        AND session.deleted_at IS NULL
+        AND session.deletion_requested_at IS NULL
+      ON CONFLICT (provider_conversation_id) DO NOTHING
+      RETURNING id
+    `;
+    if (!inserted) {
+      const [owned] = await transaction`
+        SELECT conversation.id
+        FROM intake_conversations conversation
+        JOIN repair_sessions session ON session.id = conversation.session_id
+        WHERE conversation.provider_conversation_id = ${providerConversationId}
+          AND session.id = ${sessionId}::uuid
+          AND session.project_id = ${projectId}::uuid
+        LIMIT 1
+      `;
+      if (!owned) throw new Response("Voice conversation could not be registered", { status: 409 });
+      return;
+    }
+    await transaction`
+      INSERT INTO audit_events (id, project_id, session_id, event_type, message, metadata)
+      VALUES (
+        ${randomUUID()}::uuid,
+        ${projectId}::uuid,
+        ${sessionId}::uuid,
+        'voice_intake_connected',
+        'ElevenLabs intake conversation registered for deletion and audit',
+        ${transaction.json({ provider: "elevenlabs" })}
+      )
+    `;
+  });
+}
+
 export async function deleteRepairSession(projectId: string, sessionId: string) {
   const sql = getDatabase();
+  const deletionState = await sql.begin(async (transaction) => {
+    const [session] = await transaction<Array<{ id: string }>>`
+      UPDATE repair_sessions
+      SET
+        deletion_requested_at = COALESCE(deletion_requested_at, now()),
+        updated_at = now()
+      WHERE id = ${sessionId}::uuid
+        AND project_id = ${projectId}::uuid
+        AND deleted_at IS NULL
+      RETURNING id
+    `;
+    if (!session) return "not_found" as const;
+
+    const [dispatchInFlight] = await transaction<Array<{ id: string }>>`
+      SELECT call.id
+      FROM calls call
+      JOIN campaigns campaign ON campaign.id = call.campaign_id
+      WHERE campaign.session_id = ${sessionId}::uuid
+        AND call.dispatch_started_at IS NOT NULL
+        AND call.dispatch_completed_at IS NULL
+      LIMIT 1
+    `;
+    return dispatchInFlight ? ("dispatch_in_flight" as const) : ("ready" as const);
+  });
+  if (deletionState === "not_found") return false;
+  if (deletionState === "dispatch_in_flight") {
+    throw new Response("An outbound-call dispatch is finishing; retry deletion shortly", {
+      status: 409,
+      headers: { "retry-after": "2" },
+    });
+  }
+
   const documents = await sql<Array<{ storage_key: string }>>`
     SELECT document.storage_key
     FROM source_documents document
@@ -424,14 +503,24 @@ export async function deleteRepairSession(projectId: string, sessionId: string) 
     WHERE session.id = ${sessionId}::uuid AND session.project_id = ${projectId}::uuid
   `;
   const conversations = await sql<Array<{ provider_conversation_id: string }>>`
-    SELECT DISTINCT call.provider_conversation_id
-    FROM calls call
-    JOIN campaigns campaign ON campaign.id = call.campaign_id
-    JOIN repair_sessions session ON session.id = campaign.session_id
-    WHERE session.id = ${sessionId}::uuid
-      AND session.project_id = ${projectId}::uuid
-      AND call.provider = 'elevenlabs'
-      AND call.provider_conversation_id IS NOT NULL
+    SELECT DISTINCT owned.provider_conversation_id
+    FROM (
+      SELECT call.provider_conversation_id
+      FROM calls call
+      JOIN campaigns campaign ON campaign.id = call.campaign_id
+      JOIN repair_sessions session ON session.id = campaign.session_id
+      WHERE session.id = ${sessionId}::uuid
+        AND session.project_id = ${projectId}::uuid
+        AND call.provider = 'elevenlabs'
+        AND call.provider_conversation_id IS NOT NULL
+      UNION ALL
+      SELECT conversation.provider_conversation_id
+      FROM intake_conversations conversation
+      JOIN repair_sessions session ON session.id = conversation.session_id
+      WHERE session.id = ${sessionId}::uuid
+        AND session.project_id = ${projectId}::uuid
+        AND conversation.provider = 'elevenlabs'
+    ) owned
   `;
   await Promise.all(
     conversations.map((call) => deleteElevenLabsConversation(call.provider_conversation_id)),
@@ -440,7 +529,9 @@ export async function deleteRepairSession(projectId: string, sessionId: string) 
   return sql.begin(async (transaction) => {
     const deleted = await transaction`
       DELETE FROM repair_sessions
-      WHERE id = ${sessionId}::uuid AND project_id = ${projectId}::uuid
+      WHERE id = ${sessionId}::uuid
+        AND project_id = ${projectId}::uuid
+        AND deletion_requested_at IS NOT NULL
       RETURNING id
     `;
     if (deleted.length === 0) return false;

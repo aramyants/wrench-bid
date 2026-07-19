@@ -4,7 +4,7 @@ import { apiHandler } from "@/lib/wrenchbid/server/api.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
 import { getRequestSnapshot } from "@/lib/wrenchbid/server/requests.server";
 import { discoverRepairShops } from "@/lib/wrenchbid/server/tavily.server";
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/api/requests/$id/discover")({
       POST: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const snapshot = await getRequestSnapshot(project.projectId, params.id);
           if (!snapshot) throw new Response("Request not found", { status: 404 });
           if (snapshot.spec.status !== "confirmed") {

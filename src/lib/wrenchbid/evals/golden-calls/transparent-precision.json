@@ -1,0 +1,82 @@
+{
+  "name": "transparent-precision",
+  "style": "transparent",
+  "description": "Transparent shop itemizes every charge on the first ask and confirms the all-in total. Every collected fee must be extracted and evidenced.",
+  "data": {
+    "conversation_id": "conv_golden_transparent_precision",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Sure, we can quote that. Parts are $312, labor is $228, shop supplies are $28, diagnostic and disposal are $0, and tax is $48.69.",
+        "time_in_call_secs": 16
+      },
+      {
+        "role": "agent",
+        "message": "Thank you. Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds.",
+        "time_in_call_secs": 32
+      },
+      {
+        "role": "user",
+        "message": "All-in total is $616.69. Warranty is 12 months / 12,000 miles. Earliest is Tuesday, and the quote holds for 14 days.",
+        "time_in_call_secs": 44
+      },
+      {
+        "role": "agent",
+        "message": "Confirmed: $616.69 all-in with the 12-month warranty. I'll present that exact quote to the customer.",
+        "time_in_call_secs": 58
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "call_outcome": { "value": "quote" },
+        "parts": { "value": 312 },
+        "labor": { "value": 228 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 28 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 48.69 },
+        "all_in_total": { "value": 616.69 },
+        "warranty": { "value": "12 months / 12,000 miles" },
+        "earliest_appointment": { "value": "2026-07-21" },
+        "quote_expiration": { "value": "2026-08-02" }
+      }
+    },
+    "metadata": { "call_duration_secs": 64 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 312,
+        "labor": 228,
+        "diagnostic": 0,
+        "shop_supply": 28,
+        "disposal": 0,
+        "tax": 48.69
+      },
+      "total": 616.69,
+      "subtotal": 568,
+      "status": "complete",
+      "completeness": 0.9090909090909091,
+      "confirmedInCall": true,
+      "warnings": [],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "all_in_total",
+        "warranty"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

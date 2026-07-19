@@ -6,7 +6,7 @@ import { startNegotiation } from "@/lib/wrenchbid/server/negotiations.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
 
 const NegotiationInputSchema = z.object({
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/api/negotiations")({
       POST: ({ request }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const input = NegotiationInputSchema.parse(await request.json());
           const result = await startNegotiation({ projectId: project.projectId, ...input });
           return jsonResponse(result, { status: 201, setCookie: project.setCookie });

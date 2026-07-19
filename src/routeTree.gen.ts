@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as DemoRouteImport } from './routes/demo'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DemoIndexRouteImport } from './routes/demo.index'
 import { Route as RequestsNewRouteImport } from './routes/requests.new'
 import { Route as DemoArenaRouteImport } from './routes/demo.arena'
 import { Route as ApiRequestsRouteImport } from './routes/api.requests'
@@ -29,6 +30,9 @@ import { Route as CampaignsIdNegotiateRouteImport } from './routes/campaigns.$id
 import { Route as CampaignsIdCompareRouteImport } from './routes/campaigns.$id.compare'
 import { Route as ApiWebhooksElevenlabsRouteImport } from './routes/api.webhooks.elevenlabs'
 import { Route as ApiRequestsIdRouteImport } from './routes/api.requests.$id'
+import { Route as ApiDemoVoiceRouteImport } from './routes/api.demo.voice'
+import { Route as ApiDemoSimulateRouteImport } from './routes/api.demo.simulate'
+import { Route as ApiDemoIntakeVoiceRouteImport } from './routes/api.demo.intake-voice'
 import { Route as ApiCampaignsIdRouteImport } from './routes/api.campaigns.$id'
 import { Route as ApiRequestsIdVoiceTokenRouteImport } from './routes/api.requests.$id.voice-token'
 import { Route as ApiRequestsIdShopsRouteImport } from './routes/api.requests.$id.shops'
@@ -50,6 +54,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const DemoIndexRoute = DemoIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DemoRoute,
 } as any)
 const RequestsNewRoute = RequestsNewRouteImport.update({
   id: '/requests/new',
@@ -136,6 +145,21 @@ const ApiRequestsIdRoute = ApiRequestsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => ApiRequestsRoute,
 } as any)
+const ApiDemoVoiceRoute = ApiDemoVoiceRouteImport.update({
+  id: '/api/demo/voice',
+  path: '/api/demo/voice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDemoSimulateRoute = ApiDemoSimulateRouteImport.update({
+  id: '/api/demo/simulate',
+  path: '/api/demo/simulate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDemoIntakeVoiceRoute = ApiDemoIntakeVoiceRouteImport.update({
+  id: '/api/demo/intake-voice',
+  path: '/api/demo/intake-voice',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCampaignsIdRoute = ApiCampaignsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -178,7 +202,11 @@ export interface FileRoutesByFullPath {
   '/api/requests': typeof ApiRequestsRouteWithChildren
   '/demo/arena': typeof DemoArenaRoute
   '/requests/new': typeof RequestsNewRoute
+  '/demo/': typeof DemoIndexRoute
   '/api/campaigns/$id': typeof ApiCampaignsIdRoute
+  '/api/demo/intake-voice': typeof ApiDemoIntakeVoiceRoute
+  '/api/demo/simulate': typeof ApiDemoSimulateRoute
+  '/api/demo/voice': typeof ApiDemoVoiceRoute
   '/api/requests/$id': typeof ApiRequestsIdRouteWithChildren
   '/api/webhooks/elevenlabs': typeof ApiWebhooksElevenlabsRoute
   '/campaigns/$id/compare': typeof CampaignsIdCompareRoute
@@ -197,7 +225,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/demo': typeof DemoRouteWithChildren
   '/history': typeof HistoryRoute
   '/api/campaigns': typeof ApiCampaignsRouteWithChildren
   '/api/capabilities': typeof ApiCapabilitiesRoute
@@ -206,7 +233,11 @@ export interface FileRoutesByTo {
   '/api/requests': typeof ApiRequestsRouteWithChildren
   '/demo/arena': typeof DemoArenaRoute
   '/requests/new': typeof RequestsNewRoute
+  '/demo': typeof DemoIndexRoute
   '/api/campaigns/$id': typeof ApiCampaignsIdRoute
+  '/api/demo/intake-voice': typeof ApiDemoIntakeVoiceRoute
+  '/api/demo/simulate': typeof ApiDemoSimulateRoute
+  '/api/demo/voice': typeof ApiDemoVoiceRoute
   '/api/requests/$id': typeof ApiRequestsIdRouteWithChildren
   '/api/webhooks/elevenlabs': typeof ApiWebhooksElevenlabsRoute
   '/campaigns/$id/compare': typeof CampaignsIdCompareRoute
@@ -235,7 +266,11 @@ export interface FileRoutesById {
   '/api/requests': typeof ApiRequestsRouteWithChildren
   '/demo/arena': typeof DemoArenaRoute
   '/requests/new': typeof RequestsNewRoute
+  '/demo/': typeof DemoIndexRoute
   '/api/campaigns/$id': typeof ApiCampaignsIdRoute
+  '/api/demo/intake-voice': typeof ApiDemoIntakeVoiceRoute
+  '/api/demo/simulate': typeof ApiDemoSimulateRoute
+  '/api/demo/voice': typeof ApiDemoVoiceRoute
   '/api/requests/$id': typeof ApiRequestsIdRouteWithChildren
   '/api/webhooks/elevenlabs': typeof ApiWebhooksElevenlabsRoute
   '/campaigns/$id/compare': typeof CampaignsIdCompareRoute
@@ -265,7 +300,11 @@ export interface FileRouteTypes {
     | '/api/requests'
     | '/demo/arena'
     | '/requests/new'
+    | '/demo/'
     | '/api/campaigns/$id'
+    | '/api/demo/intake-voice'
+    | '/api/demo/simulate'
+    | '/api/demo/voice'
     | '/api/requests/$id'
     | '/api/webhooks/elevenlabs'
     | '/campaigns/$id/compare'
@@ -284,7 +323,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/demo'
     | '/history'
     | '/api/campaigns'
     | '/api/capabilities'
@@ -293,7 +331,11 @@ export interface FileRouteTypes {
     | '/api/requests'
     | '/demo/arena'
     | '/requests/new'
+    | '/demo'
     | '/api/campaigns/$id'
+    | '/api/demo/intake-voice'
+    | '/api/demo/simulate'
+    | '/api/demo/voice'
     | '/api/requests/$id'
     | '/api/webhooks/elevenlabs'
     | '/campaigns/$id/compare'
@@ -321,7 +363,11 @@ export interface FileRouteTypes {
     | '/api/requests'
     | '/demo/arena'
     | '/requests/new'
+    | '/demo/'
     | '/api/campaigns/$id'
+    | '/api/demo/intake-voice'
+    | '/api/demo/simulate'
+    | '/api/demo/voice'
     | '/api/requests/$id'
     | '/api/webhooks/elevenlabs'
     | '/campaigns/$id/compare'
@@ -349,6 +395,9 @@ export interface RootRouteChildren {
   ApiNegotiationsRoute: typeof ApiNegotiationsRoute
   ApiRequestsRoute: typeof ApiRequestsRouteWithChildren
   RequestsNewRoute: typeof RequestsNewRoute
+  ApiDemoIntakeVoiceRoute: typeof ApiDemoIntakeVoiceRoute
+  ApiDemoSimulateRoute: typeof ApiDemoSimulateRoute
+  ApiDemoVoiceRoute: typeof ApiDemoVoiceRoute
   ApiWebhooksElevenlabsRoute: typeof ApiWebhooksElevenlabsRoute
   CampaignsIdCompareRoute: typeof CampaignsIdCompareRoute
   CampaignsIdNegotiateRoute: typeof CampaignsIdNegotiateRoute
@@ -383,6 +432,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/demo/': {
+      id: '/demo/'
+      path: '/'
+      fullPath: '/demo/'
+      preLoaderRoute: typeof DemoIndexRouteImport
+      parentRoute: typeof DemoRoute
     }
     '/requests/new': {
       id: '/requests/new'
@@ -503,6 +559,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRequestsIdRouteImport
       parentRoute: typeof ApiRequestsRoute
     }
+    '/api/demo/voice': {
+      id: '/api/demo/voice'
+      path: '/api/demo/voice'
+      fullPath: '/api/demo/voice'
+      preLoaderRoute: typeof ApiDemoVoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/demo/simulate': {
+      id: '/api/demo/simulate'
+      path: '/api/demo/simulate'
+      fullPath: '/api/demo/simulate'
+      preLoaderRoute: typeof ApiDemoSimulateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/demo/intake-voice': {
+      id: '/api/demo/intake-voice'
+      path: '/api/demo/intake-voice'
+      fullPath: '/api/demo/intake-voice'
+      preLoaderRoute: typeof ApiDemoIntakeVoiceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/campaigns/$id': {
       id: '/api/campaigns/$id'
       path: '/$id'
@@ -550,10 +627,12 @@ declare module '@tanstack/react-router' {
 
 interface DemoRouteChildren {
   DemoArenaRoute: typeof DemoArenaRoute
+  DemoIndexRoute: typeof DemoIndexRoute
 }
 
 const DemoRouteChildren: DemoRouteChildren = {
   DemoArenaRoute: DemoArenaRoute,
+  DemoIndexRoute: DemoIndexRoute,
 }
 
 const DemoRouteWithChildren = DemoRoute._addFileChildren(DemoRouteChildren)
@@ -610,6 +689,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiNegotiationsRoute: ApiNegotiationsRoute,
   ApiRequestsRoute: ApiRequestsRouteWithChildren,
   RequestsNewRoute: RequestsNewRoute,
+  ApiDemoIntakeVoiceRoute: ApiDemoIntakeVoiceRoute,
+  ApiDemoSimulateRoute: ApiDemoSimulateRoute,
+  ApiDemoVoiceRoute: ApiDemoVoiceRoute,
   ApiWebhooksElevenlabsRoute: ApiWebhooksElevenlabsRoute,
   CampaignsIdCompareRoute: CampaignsIdCompareRoute,
   CampaignsIdNegotiateRoute: CampaignsIdNegotiateRoute,

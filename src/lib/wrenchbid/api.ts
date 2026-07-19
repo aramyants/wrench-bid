@@ -145,10 +145,20 @@ export async function getVoiceToken(sessionId: string) {
   );
 }
 
+export async function registerVoiceConversation(sessionId: string, conversationId: string) {
+  await requestJson<{ registered: true }>(
+    `/api/requests/${encodeURIComponent(sessionId)}/actions`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "register_voice_conversation", conversationId }),
+    },
+  );
+}
+
 export function createRemoteCampaign(input: {
   sessionId: string;
   shopIds: string[];
-  idempotencyKey: string;
   aiDisclosureAccepted: true;
   recordingConsentConfirmed: true;
 }) {

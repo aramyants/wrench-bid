@@ -5,9 +5,13 @@ import { apiHandler } from "@/lib/wrenchbid/server/api.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
-import { confirmRepairSpec, updateDraftRepairSpec } from "@/lib/wrenchbid/server/requests.server";
+import {
+  confirmRepairSpec,
+  registerIntakeConversation,
+  updateDraftRepairSpec,
+} from "@/lib/wrenchbid/server/requests.server";
 
 const ActionSchema = z.discriminatedUnion("action", [
   z.object({
@@ -36,6 +40,15 @@ const ActionSchema = z.discriminatedUnion("action", [
     source: z.enum(["voice", "manual"]),
   }),
   z.object({ action: z.literal("confirm_spec") }),
+  z.object({
+    action: z.literal("register_voice_conversation"),
+    conversationId: z
+      .string()
+      .trim()
+      .min(8)
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/),
+  }),
 ]);
 
 export const Route = createFileRoute("/api/requests/$id/actions")({
@@ -44,8 +57,12 @@ export const Route = createFileRoute("/api/requests/$id/actions")({
       POST: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const action = ActionSchema.parse(await request.json());
+          if (action.action === "register_voice_conversation") {
+            await registerIntakeConversation(project.projectId, params.id, action.conversationId);
+            return jsonResponse({ registered: true }, { setCookie: project.setCookie });
+          }
           const value =
             action.action === "update_spec" &&
             action.path === "operations" &&

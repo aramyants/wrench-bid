@@ -19,6 +19,7 @@ Read, in order:
 | Domain/Zod                   | `src/lib/wrenchbid/types.ts`                             |
 | Vertical behavior            | `src/lib/wrenchbid/verticals/auto-repair.ts`             |
 | Ranking/outliers/evidence    | `ranking.ts`, `quote-evidence.ts`                        |
+| Call normalization/evals     | `call-normalization.ts`, `evals/` (see `docs/EVALS.md`)  |
 | Database/migrations          | `migrations/`, `scripts/migrate.mjs`, `db.server.ts`     |
 | Runtime configuration        | `env.server.ts`, `.env.example`, `compose.yaml`          |
 | Project ownership            | `project-session.server.ts`                              |
@@ -40,9 +41,9 @@ The original Phase 1 plan (`docs/PHASE1_PLAN.md`) intentionally specified a mock
 | Brief requirement                             | Status                                                                                      |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | One auto-repair vertical                      | Implemented/config-driven                                                                   |
-| PDF and voice converge on RepairSpec          | Implemented; voice needs configured intake agent/tool                                       |
+| PDF and voice converge on RepairSpec          | Implemented; local ElevenLabs intake agent/tool configured for WebRTC                        |
 | User-confirmed immutable spec reused per call | Implemented with campaign snapshot/hash                                                     |
-| Three distinct counterparties/styles          | Deterministic synthetic arena implemented; live voice requires owned role-play destinations |
+| Three distinct counterparties/styles          | Deterministic arena now reveals and voices each turn in real time                            |
 | Itemized comparable quotes                    | Webhook normalizer implemented; agent data-collection keys must be configured               |
 | Genuine-leverage negotiation                  | Implemented; measurable improvement depends on a real shop response                         |
 | AI honesty and friction handling              | Prompt policy/dynamic variables implemented; must be evaluated with live calls              |
@@ -54,7 +55,7 @@ The original Phase 1 plan (`docs/PHASE1_PLAN.md`) intentionally specified a mock
 
 1. Rotate all exposed keys.
 2. Create/configure three ElevenLabs agents, phone integration, structured data fields, and HMAC webhook using `docs/INTEGRATIONS.md`.
-3. Run a role-play evaluation suite before calling real businesses. Verify interruption, “are you a robot?”, refusal, callback, hard sell, and invented-leverage defenses.
+3. Run a role-play evaluation suite before calling real businesses. Verify interruption, “are you a robot?”, refusal, callback, hard sell, and invented-leverage defenses. The offline golden-call evals (`npm run eval`, `docs/EVALS.md`) are the deterministic baseline for this; live role-play remains mandatory.
 4. Add public-product authentication and replace/disable anonymous project creation.
 5. Add a real auto-repair benchmark/licensed data source; do not scrape a source without permission.
 6. Move webhook processing to a durable worker and implement scheduled retention; interactive provider-conversation deletion is already wired.
@@ -66,4 +67,4 @@ The dated results and reproduction commands live in `docs/VERIFICATION.md`. Upda
 
 ## Repository caveat
 
-The workspace currently has no `.git` directory. Initialize version control (or restore the original history, if one exists elsewhere) before making release-level changes, and keep published history linear afterwards.
+Version control is restored (branch `codex/restore-wrench-bid-project`; default branch `main`). Keep published history linear; see `AGENTS.md` for the Lovable-sync constraint against rewriting pushed history.

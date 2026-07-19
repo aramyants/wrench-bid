@@ -25,6 +25,7 @@ import { getDatabase } from "./db.server";
 import { startElevenLabsOutboundCall } from "./elevenlabs.server";
 import { getServerEnvironment } from "./env.server";
 import { getRequestSnapshot } from "./requests.server";
+import { reconcileElevenLabsInitiationFailure } from "./provider-failures.server";
 
 export type CampaignSnapshot = {
   campaign: Campaign;
@@ -113,8 +114,8 @@ export async function createCampaign(input: {
     SELECT
       shop.id,
       shop.name,
-      shop.phone,
-      shop.phone_verified,
+      selection.verified_phone AS phone,
+      (selection.verified_phone IS NOT NULL) AS phone_verified,
       shop.address,
       shop.website,
       shop.hours,
@@ -227,11 +228,13 @@ export async function createCampaign(input: {
         ];
       await transaction`
         INSERT INTO calls (
-          id, campaign_id, shop_id, style_profile, status, current_objective, created_at, updated_at
+          id, campaign_id, shop_id, destination_phone, style_profile, status,
+          current_objective, created_at, updated_at
         ) VALUES (
           ${randomUUID()}::uuid,
           ${campaignId}::uuid,
           ${shop.id}::uuid,
+          ${shop.phone},
           ${style.id},
           'queued',
           'Introduce the immutable RepairSpec and request an itemized all-in quote',
@@ -267,39 +270,55 @@ export async function createCampaign(input: {
 
 async function claimCallForDispatch(callId: string, suppressedPhones: string[]) {
   const sql = getDatabase();
-  const [claimed] = await sql<
-    Array<{
-      id: string;
-      phone: string;
-      shop_name: string;
-      style_profile: string;
-      spec_snapshot: RepairSpec;
-      recording_consent_confirmed: boolean;
-    }>
-  >`
-    UPDATE calls call
-    SET dispatch_started_at = now(), updated_at = now()
-    FROM campaigns campaign, shops shop
-    WHERE call.id = ${callId}::uuid
-      AND call.campaign_id = campaign.id
-      AND call.shop_id = shop.id
-      AND call.kind = 'quote'
-      AND call.status = 'queued'
-      AND call.dispatch_started_at IS NULL
-      AND campaign.ai_disclosure_accepted IS TRUE
-      AND campaign.recording_consent_confirmed IS TRUE
-      AND shop.phone_verified IS TRUE
-      AND shop.phone ~ '^[+][1-9][0-9]{7,14}$'
-      AND NOT (shop.phone = ANY(${suppressedPhones}::text[]))
-    RETURNING
-      call.id,
-      shop.phone,
-      shop.name AS shop_name,
-      call.style_profile,
-      campaign.spec_snapshot,
-      campaign.recording_consent_confirmed
-  `;
-  return claimed;
+  return sql.begin(async (transaction) => {
+    const [dispatchableSession] = await transaction<Array<{ id: string }>>`
+      SELECT session.id
+      FROM calls call
+      JOIN campaigns campaign ON campaign.id = call.campaign_id
+      JOIN repair_sessions session ON session.id = campaign.session_id
+      WHERE call.id = ${callId}::uuid
+        AND session.deleted_at IS NULL
+        AND session.deletion_requested_at IS NULL
+      FOR UPDATE OF session
+    `;
+    if (!dispatchableSession) return undefined;
+
+    const [claimed] = await transaction<
+      Array<{
+        id: string;
+        phone: string;
+        shop_name: string;
+        style_profile: string;
+        spec_snapshot: RepairSpec;
+        recording_consent_confirmed: boolean;
+      }>
+    >`
+      UPDATE calls call
+      SET dispatch_started_at = now(), updated_at = now()
+      FROM campaigns campaign, repair_sessions session, shops shop
+      WHERE call.id = ${callId}::uuid
+        AND call.campaign_id = campaign.id
+        AND campaign.session_id = session.id
+        AND call.shop_id = shop.id
+        AND session.deleted_at IS NULL
+        AND session.deletion_requested_at IS NULL
+        AND call.kind = 'quote'
+        AND call.status = 'queued'
+        AND call.dispatch_started_at IS NULL
+        AND campaign.ai_disclosure_accepted IS TRUE
+        AND campaign.recording_consent_confirmed IS TRUE
+        AND call.destination_phone ~ '^[+][1-9][0-9]{7,14}$'
+        AND NOT (call.destination_phone = ANY(${suppressedPhones}::text[]))
+      RETURNING
+        call.id,
+        call.destination_phone AS phone,
+        shop.name AS shop_name,
+        call.style_profile,
+        campaign.spec_snapshot,
+        campaign.recording_consent_confirmed
+    `;
+    return claimed;
+  });
 }
 
 async function failUnclaimedQuoteCall(callId: string) {
@@ -341,6 +360,8 @@ export async function dispatchCampaign(projectId: string, campaignId: string) {
     JOIN repair_sessions session ON session.id = campaign.session_id
     WHERE campaign.id = ${campaignId}::uuid
       AND session.project_id = ${projectId}::uuid
+      AND session.deleted_at IS NULL
+      AND session.deletion_requested_at IS NULL
       AND call.kind = 'quote'
       AND call.status = 'queued'
       AND call.dispatch_started_at IS NULL
@@ -371,6 +392,8 @@ export async function dispatchCampaign(projectId: string, campaignId: string) {
             identity_policy: AUTO_REPAIR_VERTICAL.agentPolicy.identity,
             disclosure_policy: AUTO_REPAIR_VERTICAL.agentPolicy.disclosure,
             scope_policy: AUTO_REPAIR_VERTICAL.agentPolicy.scope,
+            commitment_policy: AUTO_REPAIR_VERTICAL.agentPolicy.commitment,
+            prompt_injection_policy: AUTO_REPAIR_VERTICAL.agentPolicy.promptInjection,
             terminal_outcome_policy: AUTO_REPAIR_VERTICAL.agentPolicy.terminalOutcomes,
           },
         });
@@ -387,6 +410,7 @@ export async function dispatchCampaign(projectId: string, campaignId: string) {
             updated_at = now()
           WHERE id = ${call.id}::uuid
         `;
+        await reconcileElevenLabsInitiationFailure(call.id, result.conversationId);
       } catch (error) {
         const reason =
           error instanceof Response
@@ -511,11 +535,14 @@ export async function getCampaignSnapshot(
     ORDER BY call.created_at
   `;
   const shopRows = await sql<Array<Record<string, unknown>>>`
-    SELECT DISTINCT shop.*
+    SELECT DISTINCT ON (shop.id)
+      shop.*,
+      COALESCE(call.destination_phone, shop.phone) AS phone,
+      (call.destination_phone IS NOT NULL) AS phone_verified
     FROM shops shop
     JOIN calls call ON call.shop_id = shop.id
     WHERE call.campaign_id = ${campaignId}::uuid
-    ORDER BY shop.name
+    ORDER BY shop.id, (call.kind = 'quote') DESC, call.created_at
   `;
   const quoteRows = await sql<Array<Record<string, unknown>>>`
     SELECT quote.*

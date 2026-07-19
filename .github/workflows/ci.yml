@@ -18,7 +18,16 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
-      - run: npm run lint
+      - run: npm run eval
       - run: npm run build
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Secret pattern scan
+        run: |
+          ! grep -rInE "sk_[A-Za-z0-9]{24,}|tvly-[A-Za-z0-9]{16,}|xi-api-key['\":= ]+[A-Za-z0-9]{24,}" \
+            --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.output \
+            --exclude=".env*" --exclude="*.local" .

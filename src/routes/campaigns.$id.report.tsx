@@ -19,6 +19,7 @@ import type { Quote } from "@/lib/wrenchbid/types";
 import { rankQuotes } from "@/lib/wrenchbid/ranking";
 import { useCampaignSync } from "@/hooks/use-live-sync";
 import { deleteRemoteRequest } from "@/lib/wrenchbid/api";
+import { subtractAmounts } from "@/lib/wrenchbid/money";
 
 export const Route = createFileRoute("/campaigns/$id/report")({
   head: () => ({
@@ -47,13 +48,7 @@ function ReportPage() {
     const quoteCallIds = Object.values(calls)
       .filter((call) => call.campaignId === id && call.kind === "quote")
       .map((c) => c.id);
-    const baseline = Object.values(quotes).filter(
-      (quote) =>
-        quoteCallIds.includes(quote.callId) &&
-        quote.status === "complete" &&
-        quote.completeness >= 0.9 &&
-        quote.confirmedInCall,
-    );
+    const baseline = Object.values(quotes).filter((quote) => quoteCallIds.includes(quote.callId));
     const successfulNegotiations = Object.values(negotiations).filter(
       (negotiation) =>
         negotiation.campaignId === id &&
@@ -62,17 +57,14 @@ function ReportPage() {
         quotes[negotiation.revisedQuoteId]?.completeness >= 0.9 &&
         quotes[negotiation.revisedQuoteId]?.confirmedInCall,
     );
-    const replacedOriginalIds = new Set(
-      successfulNegotiations.map((negotiation) => negotiation.originalQuoteId),
-    );
     const revised = successfulNegotiations.map(
       (negotiation) => quotes[negotiation.revisedQuoteId as string],
     );
-    return [...baseline.filter((quote) => !replacedOriginalIds.has(quote.id)), ...revised];
+    return [...baseline, ...revised];
   }, [calls, quotes, id, campaign, negotiations]);
 
   const ranking = useMemo(() => rankQuotes(campaignQuotes), [campaignQuotes]);
-  const recommendation = ranking[0];
+  const recommendation = ranking.find((entry) => entry.eligible);
   const recommended = recommendation?.quote;
   const recommendedShop = shops[recommended?.shopId ?? ""];
   const campaignNegotiation = Object.values(negotiations).find(
@@ -87,7 +79,7 @@ function ReportPage() {
     : undefined;
   const original = originalQuote?.total;
   const finalTotal = recommended?.total ?? 0;
-  const improvement = original != null ? original - finalTotal : 0;
+  const improvement = original != null ? subtractAmounts(original, finalTotal) : 0;
 
   const campaignCalls = Object.values(calls).filter((c) => c.campaignId === id);
 

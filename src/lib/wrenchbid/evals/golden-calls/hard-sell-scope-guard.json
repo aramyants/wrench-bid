@@ -1,0 +1,91 @@
+{
+  "name": "hard-sell-scope-guard",
+  "style": "friction",
+  "description": "A hard-selling advisor pushes added work (calipers, fluid flush) and an immediate booking. The agent must keep the sealed confirmed scope unchanged and capture a quote for exactly that scope.",
+  "data": {
+    "conversation_id": "conv_golden_hard_sell",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant calling on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Honestly at that mileage you'll want calipers and a brake-fluid flush too. I can add both and get you in tomorrow if you book right now.",
+        "time_in_call_secs": 18
+      },
+      {
+        "role": "agent",
+        "message": "The customer approved only the front pads and rotors with premium aftermarket parts. Please quote exactly that scope; any additional work is the customer's decision, not mine, and I can't book on this call.",
+        "time_in_call_secs": 30
+      },
+      {
+        "role": "user",
+        "message": "Your call. For that scope: parts $320, labor $250, shop supplies $30, diagnostic and disposal are $0, and tax $48.",
+        "time_in_call_secs": 46
+      },
+      {
+        "role": "agent",
+        "message": "Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds.",
+        "time_in_call_secs": 58
+      },
+      {
+        "role": "user",
+        "message": "All-in $648, warranty 24 months, earliest tomorrow morning, quote good for 3 days.",
+        "time_in_call_secs": 72
+      },
+      {
+        "role": "agent",
+        "message": "Confirmed: $648 all-in with the 24 months warranty for the confirmed scope only. I'll present that exact quote to the customer.",
+        "time_in_call_secs": 84
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "parts": { "value": 320 },
+        "labor": { "value": 250 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 30 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 48 },
+        "all_in_total": { "value": 648 },
+        "warranty": { "value": "24 months" },
+        "earliest_appointment": { "value": "2026-07-20" },
+        "quote_expiration": { "value": "2026-07-22" }
+      }
+    },
+    "metadata": { "call_duration_secs": 90 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 320,
+        "labor": 250,
+        "diagnostic": 0,
+        "shop_supply": 30,
+        "disposal": 0,
+        "tax": 48
+      },
+      "total": 648,
+      "subtotal": 600,
+      "status": "complete",
+      "completeness": 0.9090909090909091,
+      "confirmedInCall": true,
+      "warnings": [],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "all_in_total",
+        "warranty"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

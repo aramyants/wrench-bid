@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/wrenchbid/AppShell";
 import { useWrenchStore } from "@/lib/wrenchbid/store";
 import { seedShops } from "@/lib/wrenchbid/seed";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,10 @@ import {
   addManualShop,
   createRemoteCampaign,
   discoverShops,
+  getCapabilities,
   verifyShopPhone,
 } from "@/lib/wrenchbid/api";
+import type { RuntimeCapabilities } from "@/lib/wrenchbid/api-types";
 import { E164_PHONE_PATTERN } from "@/lib/wrenchbid/phone";
 
 export const Route = createFileRoute("/requests/$id/shops")({
@@ -52,6 +54,7 @@ function ShopSelect() {
   const [error, setError] = useState<string>();
   const [aiDisclosure, setAiDisclosure] = useState(false);
   const [recordingConsent, setRecordingConsent] = useState(false);
+  const [capabilities, setCapabilities] = useState<RuntimeCapabilities>();
   const [manual, setManual] = useState({
     name: "",
     phone: "+1",
@@ -59,7 +62,6 @@ function ShopSelect() {
     website: "",
     phoneVerificationAttested: false,
   });
-  const campaignIdempotencyKey = useRef(crypto.randomUUID());
   const hasInvalidLiveSelection =
     session?.mode === "live" &&
     Array.from(selected).some((shopId) => {
@@ -69,6 +71,21 @@ function ShopSelect() {
 
   useEffect(() => {
     if (session?.mode === "demo") setSelected(new Set(seedShops.map((shop) => shop.id)));
+  }, [session?.mode]);
+
+  useEffect(() => {
+    if (session?.mode !== "live") return;
+    let active = true;
+    void getCapabilities()
+      .then((result) => {
+        if (active) setCapabilities(result);
+      })
+      .catch(() => {
+        if (active) setCapabilities(undefined);
+      });
+    return () => {
+      active = false;
+    };
   }, [session?.mode]);
 
   function toggle(sid: string) {
@@ -87,13 +104,18 @@ function ShopSelect() {
         setError("Every selected shop needs an explicitly verified E.164 phone number");
         return;
       }
+      if (!capabilities?.outboundCalls) {
+        setError(
+          "Live outbound calling is unavailable in this deployment. Use the synthetic Agent Arena or ask the operator to complete provider configuration.",
+        );
+        return;
+      }
       setLaunching(true);
       setError(undefined);
       try {
         const snapshot = await createRemoteCampaign({
           sessionId: spec.sessionId,
           shopIds: Array.from(selected),
-          idempotencyKey: campaignIdempotencyKey.current,
           aiDisclosureAccepted: aiDisclosure as true,
           recordingConsentConfirmed: recordingConsent as true,
         });
@@ -178,7 +200,9 @@ function ShopSelect() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Choose three repair shops</h1>
           <p className="mt-1 text-muted-foreground">
-            WrenchBid will call each shop using the identical confirmed RepairSpec.
+            {session?.mode === "live" && capabilities?.outboundCalls !== true
+              ? "This deployment cannot place outbound calls. You can still review or add shops without contacting them."
+              : "WrenchBid will call each shop using the identical confirmed RepairSpec."}
           </p>
         </div>
         <Button
@@ -186,6 +210,7 @@ function ShopSelect() {
             selected.size < 3 ||
             launching ||
             hasInvalidLiveSelection ||
+            (session?.mode === "live" && capabilities?.outboundCalls !== true) ||
             (session?.mode === "live" && (!aiDisclosure || !recordingConsent))
           }
           className="bg-lime text-lime-foreground hover:brightness-95 disabled:opacity-40"
@@ -326,7 +351,7 @@ function ShopSelect() {
       {session?.mode === "live" && (
         <div className="mt-6 hairline rounded-xl border-amber/30 bg-amber/5 p-5">
           <div className="mono mb-3 text-[10px] uppercase tracking-widest text-amber">
-            Required before dialing
+            Required before any live outbound call
           </div>
           <label className="mb-3 flex items-start gap-3 text-sm">
             <Checkbox

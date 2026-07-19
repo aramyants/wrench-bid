@@ -35,8 +35,7 @@ function equalHashes(left: string, right: string) {
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
-export async function requireProjectSession(request: Request): Promise<ProjectSession> {
-  const sql = getDatabase();
+async function findExistingProjectSession(request: Request): Promise<ProjectSession | undefined> {
   const cookie = parseCookie(request.headers.get("cookie"), COOKIE_NAME);
   if (cookie) {
     const separator = cookie.indexOf(".");
@@ -44,6 +43,7 @@ export async function requireProjectSession(request: Request): Promise<ProjectSe
       const projectId = cookie.slice(0, separator);
       const token = cookie.slice(separator + 1);
       if (UUID_PATTERN.test(projectId) && token) {
+        const sql = getDatabase();
         const [project] = await sql<{ id: string; access_token_hash: string }[]>`
           SELECT id, access_token_hash
           FROM projects
@@ -58,12 +58,26 @@ export async function requireProjectSession(request: Request): Promise<ProjectSe
     }
   }
 
+  return undefined;
+}
+
+export async function requireExistingProjectSession(request: Request): Promise<ProjectSession> {
+  const project = await findExistingProjectSession(request);
+  if (!project) throw new Response("Authentication required", { status: 401 });
+  return project;
+}
+
+export async function requireProjectSession(request: Request): Promise<ProjectSession> {
+  const existing = await findExistingProjectSession(request);
+  if (existing) return existing;
+
   if (!getServerEnvironment().ALLOW_ANONYMOUS_PROJECTS) {
     throw new Response("Authentication required", { status: 401 });
   }
 
   const projectId = randomUUID();
   const token = randomBytes(32).toString("base64url");
+  const sql = getDatabase();
   await sql`
     INSERT INTO projects (id, access_token_hash)
     VALUES (${projectId}::uuid, ${tokenHash(token)})
@@ -92,7 +106,10 @@ export function assertSameOrigin(
   environment: ServerEnvironment = getServerEnvironment(),
 ) {
   const source = request.headers.get("origin") ?? request.headers.get("referer");
-  if (!source) return;
+  if (!source) {
+    if (environment.NODE_ENV !== "production") return;
+    throw new Response("Mutation origin is required", { status: 403 });
+  }
   try {
     const expectedOrigin =
       environment.NODE_ENV === "production"

@@ -15,7 +15,7 @@ export const Route = createFileRoute("/requests/new")({
       { title: "New repair request — WrenchBid" },
       {
         name: "description",
-        content: "Upload your dealer or shop estimate. Supported: PDF, PNG, JPG.",
+        content: "Upload a text-based PDF dealer or shop estimate for structured extraction.",
       },
     ],
   }),
@@ -89,8 +89,9 @@ function NewRequest() {
         </div>
         <h1 className="text-3xl font-semibold tracking-tight">Start a repair request</h1>
         <p className="mt-2 text-muted-foreground">
-          Upload the existing dealer or shop estimate. WrenchBid extracts every quotable field
-          before making any calls.
+          This is the estimate you already received, not a new quote. WrenchBid turns its repair
+          details into a draft scope, the voice interview checks only missing details, and you
+          confirm the final scope before any shop call.
         </p>
 
         <div

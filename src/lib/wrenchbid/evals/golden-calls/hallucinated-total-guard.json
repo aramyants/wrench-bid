@@ -1,0 +1,84 @@
+{
+  "name": "hallucinated-total-guard",
+  "style": "friction",
+  "description": "The data collection logs a $600 total but the shop only ever said $1,600. The pipeline must refuse to confirm the total against the transcript and flag the missing evidence.",
+  "data": {
+    "conversation_id": "conv_golden_hallucinated_total",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Parts are $900, labor is $560, shop supplies $60, diagnostic and disposal are $0, and tax is $80.",
+        "time_in_call_secs": 16
+      },
+      {
+        "role": "agent",
+        "message": "Thank you. Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds.",
+        "time_in_call_secs": 30
+      },
+      {
+        "role": "user",
+        "message": "With everything, you're looking at $1,600. Warranty 12 months. Earliest Monday, good for 7 days.",
+        "time_in_call_secs": 42
+      },
+      {
+        "role": "agent",
+        "message": "Understood. I'll present those terms to the customer.",
+        "time_in_call_secs": 56
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "parts": { "value": 900 },
+        "labor": { "value": 560 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 60 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 80 },
+        "all_in_total": { "value": 600 },
+        "warranty": { "value": "12 months" },
+        "earliest_appointment": { "value": "2026-07-27" },
+        "quote_expiration": { "value": "2026-07-26" }
+      }
+    },
+    "metadata": { "call_duration_secs": 60 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 900,
+        "labor": 560,
+        "diagnostic": 0,
+        "shop_supply": 60,
+        "disposal": 0,
+        "tax": 80
+      },
+      "total": 600,
+      "subtotal": 1520,
+      "status": "incomplete",
+      "completeness": 0.9090909090909091,
+      "confirmedInCall": false,
+      "warnings": [
+        "missing_total_transcript_evidence",
+        "quote_arithmetic_mismatch",
+        "non_comparable_scope"
+      ],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "warranty"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

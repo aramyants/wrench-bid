@@ -13,9 +13,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval": "vitest run src/lib/wrenchbid/evals",
     "db:migrate": "node scripts/migrate.mjs",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@elevenlabs/react": "^1.10.1",

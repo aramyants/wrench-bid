@@ -6,7 +6,7 @@ import { getDatabase } from "@/lib/wrenchbid/server/db.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
 import { getRequestSnapshot } from "@/lib/wrenchbid/server/requests.server";
 
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/api/requests/$id/voice-token")({
       POST: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const snapshot = await getRequestSnapshot(project.projectId, params.id);
           if (!snapshot) throw new Response("Request not found", { status: 404 });
           if (snapshot.spec.status !== "draft") {

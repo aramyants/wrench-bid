@@ -1,0 +1,45 @@
+{
+  "name": "refusal-declined",
+  "style": "friction",
+  "description": "Shop refuses to quote over the phone. The call must end as a documented decline with no quote fabricated.",
+  "data": {
+    "conversation_id": "conv_golden_refusal_declined",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "We don't do phone quotes. We won't provide pricing until the car is on the lift.",
+        "time_in_call_secs": 14
+      },
+      {
+        "role": "agent",
+        "message": "Understood. The customer has a confirmed written scope — is there any itemized estimate you can share from that?",
+        "time_in_call_secs": 24
+      },
+      {
+        "role": "user",
+        "message": "No. It's shop policy.",
+        "time_in_call_secs": 34
+      },
+      {
+        "role": "agent",
+        "message": "Understood — I'll record that as a decline to quote. Thank you for your time.",
+        "time_in_call_secs": 40
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {}
+    },
+    "metadata": { "call_duration_secs": 46 }
+  },
+  "expected": {
+    "outcome": "declined",
+    "quote": null,
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

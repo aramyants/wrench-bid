@@ -105,36 +105,39 @@ function CampaignPage() {
           Timeline
         </div>
         <ol className="flex flex-wrap items-center gap-3 text-sm">
-          {["Campaign started", "Calls connected", "Quotes received", "Normalization complete"].map(
-            (label, i) => {
-              const reached =
-                i === 0
-                  ? true
-                  : i === 1
-                    ? campaignCalls.some((c) => ORDER.indexOf(c.status) >= 2)
-                    : i === 2
-                      ? campaignCalls.every((c) => terminal.has(c.status))
-                      : allDone;
-              return (
-                <li key={label} className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "mono flex h-6 w-6 items-center justify-center rounded-full border text-[10px]",
-                      reached
-                        ? "border-lime bg-lime/20 text-lime"
-                        : "border-border text-muted-foreground",
-                    )}
-                  >
-                    {i + 1}
-                  </span>
-                  <span className={reached ? "text-foreground" : "text-muted-foreground"}>
-                    {label}
-                  </span>
-                  {i < 3 && <span className="mx-1 h-px w-6 bg-border" />}
-                </li>
-              );
-            },
-          )}
+          {[
+            "Campaign started",
+            "Sessions connected",
+            "Quotes received",
+            "Normalization complete",
+          ].map((label, i) => {
+            const reached =
+              i === 0
+                ? true
+                : i === 1
+                  ? campaignCalls.some((c) => ORDER.indexOf(c.status) >= 2)
+                  : i === 2
+                    ? campaignCalls.every((c) => terminal.has(c.status))
+                    : allDone;
+            return (
+              <li key={label} className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "mono flex h-6 w-6 items-center justify-center rounded-full border text-[10px]",
+                    reached
+                      ? "border-lime bg-lime/20 text-lime"
+                      : "border-border text-muted-foreground",
+                  )}
+                >
+                  {i + 1}
+                </span>
+                <span className={reached ? "text-foreground" : "text-muted-foreground"}>
+                  {label}
+                </span>
+                {i < 3 && <span className="mx-1 h-px w-6 bg-border" />}
+              </li>
+            );
+          })}
         </ol>
       </div>
 
@@ -163,9 +166,9 @@ function CallCard({
 }) {
   const objective =
     call.status === "queued"
-      ? "Awaiting dial"
+      ? "Queued to connect"
       : call.status === "ringing"
-        ? "Dialing shop"
+        ? "Connecting to shop"
         : call.status === "connected"
           ? "Introducing repair spec"
           : call.status === "collecting_quote"

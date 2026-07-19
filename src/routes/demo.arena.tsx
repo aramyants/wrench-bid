@@ -12,7 +12,6 @@ import {
   Play,
   RotateCcw,
   ShieldCheck,
-  Volume2,
 } from "lucide-react";
 import { AppShell } from "@/components/wrenchbid/AppShell";
 import { Button } from "@/components/ui/button";
@@ -24,9 +23,11 @@ import {
   DEMO_REPAIR_SPEC_SUMMARY,
   type CounterAgentProfile,
   type CounterAgentTurn,
+  type NegotiationAsk,
 } from "@/lib/wrenchbid/counter-agents";
 import { money } from "@/lib/wrenchbid/format";
 import { DEMO_CAMPAIGN_ID, DEMO_SESSION_ID } from "@/lib/wrenchbid/seed";
+import { useWrenchStore } from "@/lib/wrenchbid/store";
 
 export const Route = createFileRoute("/demo/arena")({
   head: () => ({
@@ -45,9 +46,31 @@ export const Route = createFileRoute("/demo/arena")({
 
 type ArenaStage = "ready" | "calling" | "quotes_ready" | "negotiating" | "complete";
 
+const ARENA_STORAGE_KEY = "wrenchbid_arena_v1";
+
+type PersistedArenaState = {
+  stage: "quotes_ready" | "complete";
+  visibleTurns: Record<string, number>;
+  negotiationTurns: number;
+};
+type VoiceScenario = CounterAgentProfile["id"] | "negotiation";
+type SimulationSource = {
+  title: string;
+  url: string;
+  snippet: string;
+  score: number;
+};
+type SimulationStreamEvent =
+  | { type: "source"; source: SimulationSource }
+  | { type: "turn"; turn: CounterAgentTurn; audioDataUrl: string }
+  | { type: "complete"; turnCount: number }
+  | { type: "error"; message: string };
+
 const quoteConversations = Object.fromEntries(
   DEMO_COUNTER_AGENTS.map((agent) => [agent.id, buildQuoteConversation(agent)]),
 );
+const marketScenarios = DEMO_COUNTER_AGENTS.map((agent) => agent.id);
+const negotiationAsks = ["beat_or_match", "waive_shop_supply"] satisfies NegotiationAsk[];
 
 const precisionAgent = DEMO_COUNTER_AGENTS.find((agent) => agent.id === "precision")!;
 const negotiation = buildNegotiationConversation({
@@ -56,23 +79,83 @@ const negotiation = buildNegotiationConversation({
   leverageShopName: "Budget Brake Center",
   leverageTotal: 574,
   leverageVerified: true,
-  asks: ["beat_or_match", "waive_shop_supply"],
+  asks: negotiationAsks,
 });
 
-function wait(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
 function AgentArenaPage() {
+  const applyNegotiation = useWrenchStore((state) => state.applyNegotiation);
   const [stage, setStage] = useState<ArenaStage>("ready");
   const [visibleTurns, setVisibleTurns] = useState<Record<string, number>>({});
   const [negotiationTurns, setNegotiationTurns] = useState(0);
+  const [voiceError, setVoiceError] = useState<string>();
+  const [activeScriptedScenario, setActiveScriptedScenario] = useState<VoiceScenario>();
+  const [activeScriptedSpeaker, setActiveScriptedSpeaker] = useState<CounterAgentTurn["speaker"]>();
+  const [simulationTurns, setSimulationTurns] = useState<CounterAgentTurn[]>([]);
+  const [simulationSource, setSimulationSource] = useState<SimulationSource>();
+  const [activeSimulationSpeaker, setActiveSimulationSpeaker] =
+    useState<CounterAgentTurn["speaker"]>();
+  const [simulationComplete, setSimulationComplete] = useState(false);
+  const [simulating, setSimulating] = useState(false);
   const runId = useRef(0);
+  const scriptedAbortRef = useRef<AbortController | null>(null);
+  const simulationAbortRef = useRef<AbortController | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  function stopActiveAudio() {
+    const source = audioSourceRef.current;
+    audioSourceRef.current = null;
+    if (!source) return;
+    try {
+      source.stop();
+    } catch {
+      // The source may already have ended between the ref check and stop call.
+    }
+  }
+
+  // Completed fixture results survive a browser refresh; only transcripts are
+  // restored (never mid-run audio), and Reset clears the saved state.
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(ARENA_STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as PersistedArenaState;
+      if (saved.stage !== "quotes_ready" && saved.stage !== "complete") return;
+      if (saved.stage === "complete") applyNegotiation(negotiationAsks);
+      setStage(saved.stage);
+      setVisibleTurns(saved.visibleTurns ?? {});
+      setNegotiationTurns(saved.negotiationTurns ?? 0);
+    } catch {
+      // Unreadable saved arena state; the deterministic fixture can simply rerun.
+    }
+  }, [applyNegotiation]);
+
+  useEffect(() => {
+    if (stage !== "quotes_ready" && stage !== "complete") return;
+    try {
+      window.sessionStorage.setItem(
+        ARENA_STORAGE_KEY,
+        JSON.stringify({ stage, visibleTurns, negotiationTurns } satisfies PersistedArenaState),
+      );
+    } catch {
+      // Storage can be unavailable (private browsing); results then last one page view.
+    }
+  }, [stage, visibleTurns, negotiationTurns]);
 
   useEffect(
     () => () => {
       runId.current += 1;
       window.speechSynthesis?.cancel();
+      scriptedAbortRef.current?.abort();
+      simulationAbortRef.current?.abort();
+      const source = audioSourceRef.current;
+      audioSourceRef.current = null;
+      try {
+        source?.stop();
+      } catch {
+        // Playback may have ended immediately before unmount.
+      }
+      void audioContextRef.current?.close();
     },
     [],
   );
@@ -80,49 +163,299 @@ function AgentArenaPage() {
   const quoteReady = stage === "quotes_ready" || stage === "negotiating" || stage === "complete";
   const running = stage === "calling" || stage === "negotiating";
 
+  async function prepareAudioContext() {
+    const context = audioContextRef.current ?? new AudioContext();
+    audioContextRef.current = context;
+    await context.resume();
+    return context;
+  }
+
+  async function fetchScenarioTurnAudio(
+    scenario: VoiceScenario,
+    turnIndex: number,
+    signal: AbortSignal,
+  ) {
+    const response = await fetch("/api/demo/voice", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scenario, turnIndex }),
+      signal,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(payload.error ?? "ElevenLabs could not generate this turn");
+    }
+    return response.arrayBuffer();
+  }
+
+  async function decodeAudioBuffer(audio: ArrayBuffer, signal?: AbortSignal) {
+    const context = audioContextRef.current;
+    if (!context) throw new Error("Browser audio could not be initialized");
+    if (signal?.aborted) throw new DOMException("Playback cancelled", "AbortError");
+    const decoded = await context.decodeAudioData(audio);
+    if (signal?.aborted) throw new DOMException("Playback cancelled", "AbortError");
+    return decoded;
+  }
+
+  async function playDecodedAudio(decoded: AudioBuffer, signal?: AbortSignal) {
+    const context = audioContextRef.current;
+    if (!context) throw new Error("Browser audio could not be initialized");
+    if (signal?.aborted) throw new DOMException("Playback cancelled", "AbortError");
+    await new Promise<void>((resolve, reject) => {
+      const source = context.createBufferSource();
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", handleAbort);
+        if (audioSourceRef.current === source) audioSourceRef.current = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      const handleAbort = () => {
+        try {
+          source.stop();
+        } catch {
+          // Playback may have finished immediately before cancellation.
+        }
+        finish(new DOMException("Playback cancelled", "AbortError"));
+      };
+      audioSourceRef.current = source;
+      source.buffer = decoded;
+      source.connect(context.destination);
+      source.addEventListener("ended", () => finish(), { once: true });
+      signal?.addEventListener("abort", handleAbort, { once: true });
+      try {
+        source.start();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error("Audio playback failed"));
+      }
+    });
+  }
+
+  async function playAudioBuffer(audio: ArrayBuffer, signal?: AbortSignal) {
+    const decoded = await decodeAudioBuffer(audio, signal);
+    await playDecodedAudio(decoded, signal);
+  }
+
+  async function playScriptedTurns({
+    scenario,
+    turns,
+    controller,
+    currentRun,
+    reveal,
+  }: {
+    scenario: VoiceScenario;
+    turns: CounterAgentTurn[];
+    controller: AbortController;
+    currentRun: number;
+    reveal: (visibleCount: number) => void;
+  }) {
+    setActiveScriptedScenario(scenario);
+    for (let index = 0; index < turns.length; index += 1) {
+      setActiveScriptedSpeaker(undefined);
+      const audio = await fetchScenarioTurnAudio(scenario, index, controller.signal);
+      if (controller.signal.aborted || runId.current !== currentRun) return false;
+      const decoded = await decodeAudioBuffer(audio, controller.signal);
+      if (controller.signal.aborted || runId.current !== currentRun) return false;
+      setActiveScriptedSpeaker(turns[index].speaker);
+      reveal(index + 1);
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (controller.signal.aborted || runId.current !== currentRun) return false;
+      await playDecodedAudio(decoded, controller.signal);
+    }
+    setActiveScriptedSpeaker(undefined);
+    return true;
+  }
+
   async function runMarket() {
+    stopAgentSimulation();
+    scriptedAbortRef.current?.abort();
+    stopActiveAudio();
     const currentRun = ++runId.current;
+    const controller = new AbortController();
+    scriptedAbortRef.current = controller;
     window.speechSynthesis?.cancel();
+    setVoiceError(undefined);
     setStage("calling");
     setNegotiationTurns(0);
     setVisibleTurns(Object.fromEntries(DEMO_COUNTER_AGENTS.map((agent) => [agent.id, 0])));
-    const longestConversation = Math.max(
-      ...DEMO_COUNTER_AGENTS.map((agent) => quoteConversations[agent.id].length),
-    );
-    for (let index = 1; index <= longestConversation; index += 1) {
-      await wait(430);
-      if (runId.current !== currentRun) return;
-      setVisibleTurns(
-        Object.fromEntries(
-          DEMO_COUNTER_AGENTS.map((agent) => [
-            agent.id,
-            Math.min(index, quoteConversations[agent.id].length),
-          ]),
-        ),
-      );
+    try {
+      await prepareAudioContext();
+      for (const scenario of marketScenarios) {
+        const completed = await playScriptedTurns({
+          scenario,
+          turns: quoteConversations[scenario],
+          controller,
+          currentRun,
+          reveal: (visibleCount) =>
+            setVisibleTurns((current) => ({ ...current, [scenario]: visibleCount })),
+        });
+        if (!completed) return;
+      }
+      if (runId.current === currentRun) setStage("quotes_ready");
+    } catch (reason) {
+      if (!controller.signal.aborted && runId.current === currentRun) {
+        setVisibleTurns(
+          Object.fromEntries(
+            DEMO_COUNTER_AGENTS.map((agent) => [agent.id, quoteConversations[agent.id].length]),
+          ),
+        );
+        setStage("quotes_ready");
+        const message =
+          reason instanceof Error ? reason.message : "ElevenLabs call playback failed";
+        setVoiceError(`${message}. The complete deterministic transcript is shown instead.`);
+      }
+    } finally {
+      if (scriptedAbortRef.current === controller) scriptedAbortRef.current = null;
+      if (runId.current === currentRun) {
+        setActiveScriptedScenario(undefined);
+        setActiveScriptedSpeaker(undefined);
+      }
     }
-    if (runId.current === currentRun) setStage("quotes_ready");
   }
 
   async function runCloser() {
+    scriptedAbortRef.current?.abort();
+    stopActiveAudio();
     const currentRun = ++runId.current;
+    const controller = new AbortController();
+    scriptedAbortRef.current = controller;
     window.speechSynthesis?.cancel();
+    setVoiceError(undefined);
     setStage("negotiating");
     setNegotiationTurns(0);
-    for (let index = 1; index <= negotiation.turns.length; index += 1) {
-      await wait(620);
-      if (runId.current !== currentRun) return;
-      setNegotiationTurns(index);
+    try {
+      await prepareAudioContext();
+      const completed = await playScriptedTurns({
+        scenario: "negotiation",
+        turns: negotiation.turns,
+        controller,
+        currentRun,
+        reveal: setNegotiationTurns,
+      });
+      if (completed && runId.current === currentRun) {
+        applyNegotiation(negotiationAsks);
+        setNegotiationTurns(negotiation.turns.length);
+        setStage("complete");
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted && runId.current === currentRun) {
+        applyNegotiation(negotiationAsks);
+        setNegotiationTurns(negotiation.turns.length);
+        setStage("complete");
+        const message =
+          reason instanceof Error ? reason.message : "ElevenLabs negotiation playback failed";
+        setVoiceError(`${message}. The complete deterministic transcript is shown instead.`);
+      }
+    } finally {
+      if (scriptedAbortRef.current === controller) scriptedAbortRef.current = null;
+      if (runId.current === currentRun) {
+        setActiveScriptedScenario(undefined);
+        setActiveScriptedSpeaker(undefined);
+      }
     }
-    if (runId.current === currentRun) setStage("complete");
   }
 
   function reset() {
     runId.current += 1;
+    scriptedAbortRef.current?.abort();
+    scriptedAbortRef.current = null;
+    stopActiveAudio();
     window.speechSynthesis?.cancel();
+    try {
+      window.sessionStorage.removeItem(ARENA_STORAGE_KEY);
+    } catch {
+      // Nothing to clear when storage is unavailable.
+    }
     setStage("ready");
     setVisibleTurns({});
     setNegotiationTurns(0);
+    setActiveScriptedScenario(undefined);
+    setActiveScriptedSpeaker(undefined);
+  }
+
+  function stopAgentSimulation() {
+    simulationAbortRef.current?.abort();
+    simulationAbortRef.current = null;
+    stopActiveAudio();
+    setActiveSimulationSpeaker(undefined);
+    setSimulating(false);
+  }
+
+  async function playStreamedTurn(audioDataUrl: string) {
+    const context = audioContextRef.current;
+    if (!context) throw new Error("Browser audio could not be initialized");
+    const encoded = audioDataUrl.split(",", 2)[1];
+    if (!encoded) throw new Error("ElevenLabs returned invalid audio");
+    const binary = window.atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    await playAudioBuffer(bytes.buffer, simulationAbortRef.current?.signal);
+  }
+
+  async function runAgentSimulation() {
+    stopAgentSimulation();
+    const controller = new AbortController();
+    simulationAbortRef.current = controller;
+    setSimulating(true);
+    setSimulationTurns([]);
+    setSimulationSource(undefined);
+    setSimulationComplete(false);
+    setVoiceError(undefined);
+    try {
+      const audioContext = audioContextRef.current ?? new AudioContext();
+      audioContextRef.current = audioContext;
+      await audioContext.resume();
+      const response = await fetch("/api/demo/simulate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
+        throw new Error((await response.text()) || "ElevenLabs simulation failed");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finished = false;
+      while (!finished) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as SimulationStreamEvent;
+          if (event.type === "source") {
+            setSimulationSource(event.source);
+          } else if (event.type === "turn") {
+            setActiveSimulationSpeaker(event.turn.speaker);
+            setSimulationTurns((current) => [...current, event.turn]);
+            await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+            await playStreamedTurn(event.audioDataUrl);
+            setActiveSimulationSpeaker(undefined);
+          } else if (event.type === "complete") {
+            setSimulationComplete(true);
+            finished = true;
+          } else {
+            throw new Error(event.message);
+          }
+        }
+        if (done) finished = true;
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted) {
+        setVoiceError(reason instanceof Error ? reason.message : "ElevenLabs simulation failed");
+      }
+    } finally {
+      if (simulationAbortRef.current === controller) simulationAbortRef.current = null;
+      setActiveSimulationSpeaker(undefined);
+      setSimulating(false);
+    }
   }
 
   return (
@@ -149,19 +482,34 @@ function AgentArenaPage() {
                 WrenchBid gives every Counter Agent the same confirmed repair scope. Private pricing
                 policies create real friction; only the spoken, itemized result reaches the buyer.
               </p>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                The three controlled scenarios run one after another so the voices never overlap.
+                They compare hidden-fee, transparent, and evasive shop behavior before a winner is
+                negotiated.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2 lg:justify-end">
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => (simulating ? stopAgentSimulation() : void runAgentSimulation())}
+                disabled={running}
+              >
+                <Bot className="mr-2 h-4 w-4" />
+                {simulating ? "Stop live simulation" : "Start real-time simulation"}
+              </Button>
               {stage === "ready" ? (
                 <Button
                   size="lg"
                   onClick={() => void runMarket()}
                   className="bg-lime text-lime-foreground shadow-[0_0_28px_-8px_oklch(0.88_0.20_128)] hover:brightness-95"
                 >
-                  <PhoneCall className="mr-2 h-4 w-4" /> Run three calls
+                  <PhoneCall className="mr-2 h-4 w-4" /> Run 3 voiced scenarios
                 </Button>
               ) : (
-                <Button size="lg" variant="secondary" onClick={reset} disabled={running}>
-                  <RotateCcw className="mr-2 h-4 w-4" /> Reset arena
+                <Button size="lg" variant="secondary" onClick={reset}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  {running ? "Stop and reset" : "Reset arena"}
                 </Button>
               )}
             </div>
@@ -191,6 +539,85 @@ function AgentArenaPage() {
         </div>
       </section>
 
+      {(simulating || simulationTurns.length > 0 || simulationSource) && (
+        <section className="mt-5 rounded-2xl border border-[color:var(--cobalt)]/30 bg-[color:var(--cobalt)]/5 p-5 lg:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="mono text-[10px] uppercase tracking-widest text-[color:var(--cobalt)]">
+                ElevenLabs agent simulation
+              </div>
+              <h2 className="mt-2 text-2xl font-semibold">Buyer agent {"\u2194"} AI repair shop</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Each message appears as its voice begins. The next agent waits until the current
+                speaker finishes. No phone number is dialed.
+              </p>
+            </div>
+            {simulating ? (
+              <LiveIndicator
+                label={
+                  activeSimulationSpeaker ? `${activeSimulationSpeaker} speaking` : "connecting"
+                }
+              />
+            ) : simulationComplete ? (
+              <Pill tone="verified">Simulation complete</Pill>
+            ) : null}
+          </div>
+
+          {simulationSource && (
+            <a
+              href={simulationSource.url}
+              target="_blank"
+              rel="noreferrer"
+              className="group mt-5 block rounded-xl border border-lime/20 bg-lime/5 p-4 transition hover:border-lime/50 hover:bg-lime/10"
+            >
+              <div className="mono text-[9px] uppercase tracking-[0.18em] text-lime">
+                Live Tavily source {"\u00b7"} public business data
+              </div>
+              <div className="mt-2 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-medium text-foreground group-hover:text-lime">
+                    {simulationSource.title}
+                  </h3>
+                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {simulationSource.snippet}
+                  </p>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 -rotate-45 text-lime" />
+              </div>
+              <p className="mt-3 text-[11px] text-amber">
+                Business context is sourced. Quote prices remain controlled simulation data.
+              </p>
+            </a>
+          )}
+
+          <div
+            className="mt-5 space-y-3 rounded-xl border border-border bg-background/70 p-4"
+            aria-live="polite"
+          >
+            {simulationTurns.map((turn) => (
+              <motion.div
+                key={turn.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={
+                  activeSimulationSpeaker === turn.speaker && simulationTurns.at(-1)?.id === turn.id
+                    ? "rounded-lg ring-1 ring-lime/40"
+                    : undefined
+                }
+              >
+                <TranscriptTurn turn={turn} />
+              </motion.div>
+            ))}
+            {simulating && simulationTurns.length === 0 && (
+              <EmptyTranscript text="Finding a Tavily source and connecting the agents..." />
+            )}
+            {simulating && simulationTurns.length > 0 && !activeSimulationSpeaker && (
+              <EmptyTranscript text="The other agent is preparing a response..." />
+            )}
+          </div>
+        </section>
+      )}
+
       <section className="mt-5 grid gap-4 xl:grid-cols-3">
         {DEMO_COUNTER_AGENTS.map((agent, index) => (
           <CounterLane
@@ -199,8 +626,8 @@ function AgentArenaPage() {
             number={index + 1}
             turns={quoteConversations[agent.id]}
             visibleCount={visibleTurns[agent.id] ?? 0}
-            quoteReady={quoteReady}
-            calling={stage === "calling"}
+            active={stage === "calling" && activeScriptedScenario === agent.id}
+            activeSpeaker={activeScriptedScenario === agent.id ? activeScriptedSpeaker : undefined}
           />
         ))}
       </section>
@@ -220,7 +647,8 @@ function AgentArenaPage() {
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                 WrenchBid may cite only stored quote{" "}
                 <span className="mono text-foreground">q_budget</span>: a transcript-confirmed $574
-                all-in offer from another shop.
+                all-in offer from another shop. This second conversation tests whether that verified
+                leverage changes the price; every turn is voiced as it appears.
               </p>
               <div className="mt-5 grid grid-cols-3 gap-2">
                 <Metric label="Before" value={money(negotiation.before)} />
@@ -236,7 +664,7 @@ function AgentArenaPage() {
                   className="mt-5 bg-lime text-lime-foreground"
                   onClick={() => void runCloser()}
                 >
-                  <CircleDollarSign className="mr-2 h-4 w-4" /> Run leverage negotiation
+                  <CircleDollarSign className="mr-2 h-4 w-4" /> Start voiced negotiation
                 </Button>
               )}
               {stage === "complete" && (
@@ -259,7 +687,15 @@ function AgentArenaPage() {
                 <div className="mono text-[10px] uppercase tracking-widest text-muted-foreground">
                   Negotiator ↔ Precision Counter Agent
                 </div>
-                {stage === "negotiating" && <LiveIndicator label="negotiating" />}
+                {stage === "negotiating" && (
+                  <LiveIndicator
+                    label={
+                      activeScriptedSpeaker
+                        ? `${activeScriptedSpeaker === "wrenchbid" ? "buyer" : "shop"} speaking`
+                        : "preparing next turn"
+                    }
+                  />
+                )}
                 {stage === "complete" && <Pill tone="verified">Revised to $585</Pill>}
               </div>
               <div className="mt-4 space-y-3">
@@ -267,22 +703,23 @@ function AgentArenaPage() {
                   <TranscriptTurn key={item.id} turn={item} />
                 ))}
                 {stage === "quotes_ready" && (
-                  <EmptyTranscript text="Approve the leverage round to start the second conversation." />
+                  <EmptyTranscript text="Start the voiced leverage round to test the best verified quote." />
                 )}
               </div>
-              {stage === "complete" && (
-                <button
-                  type="button"
-                  onClick={() => speakConversation(negotiation.turns)}
-                  className="mono mt-4 inline-flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-lime"
-                >
-                  <Volume2 className="h-3.5 w-3.5" /> Play device-voice preview
-                </button>
-              )}
             </div>
           </motion.section>
         )}
       </AnimatePresence>
+
+      {voiceError && (
+        <p
+          role="alert"
+          aria-live="assertive"
+          className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {voiceError}
+        </p>
+      )}
 
       <section className="mt-5">
         <div className="mb-3 flex items-end justify-between gap-4">
@@ -403,17 +840,18 @@ function CounterLane({
   number,
   turns,
   visibleCount,
-  quoteReady,
-  calling,
+  active,
+  activeSpeaker,
 }: {
   agent: CounterAgentProfile;
   number: number;
   turns: CounterAgentTurn[];
   visibleCount: number;
-  quoteReady: boolean;
-  calling: boolean;
+  active: boolean;
+  activeSpeaker?: CounterAgentTurn["speaker"];
 }) {
   const visible = useMemo(() => turns.slice(0, visibleCount), [turns, visibleCount]);
+  const captured = visibleCount === turns.length && turns.length > 0;
   return (
     <article className="flex min-h-[34rem] flex-col overflow-hidden rounded-xl border border-border bg-surface/70">
       <header className="border-b border-border p-4">
@@ -425,9 +863,15 @@ function CounterLane({
             <h2 className="mt-1 text-lg font-semibold">{agent.shopName}</h2>
             <p className="mt-1 text-xs text-muted-foreground">{agent.publicStyle}</p>
           </div>
-          {calling && visibleCount < turns.length ? (
-            <LiveIndicator label="on call" />
-          ) : quoteReady ? (
+          {active && visibleCount < turns.length ? (
+            <LiveIndicator
+              label={
+                activeSpeaker
+                  ? `${activeSpeaker === "wrenchbid" ? "buyer" : "shop"} speaking`
+                  : "preparing next turn"
+              }
+            />
+          ) : captured ? (
             <Pill tone="verified">Captured</Pill>
           ) : (
             <Pill tone="muted">Ready</Pill>
@@ -435,7 +879,7 @@ function CounterLane({
         </div>
       </header>
       <div className="flex-1 p-4">
-        <div className="space-y-3">
+        <div className="space-y-3" aria-live="polite">
           {visible.map((item) => (
             <TranscriptTurn key={item.id} turn={item} />
           ))}
@@ -451,18 +895,10 @@ function CounterLane({
               All-in result
             </div>
             <div className="mono mt-1 text-2xl font-semibold text-lime">
-              {quoteReady ? money(agent.quote.total) : "—"}
+              {captured ? money(agent.quote.total) : "—"}
             </div>
           </div>
-          {quoteReady && (
-            <button
-              type="button"
-              onClick={() => speakConversation(turns)}
-              className="mono inline-flex items-center gap-2 text-[9px] uppercase tracking-widest text-muted-foreground hover:text-lime"
-            >
-              <Volume2 className="h-3.5 w-3.5" /> Voice preview
-            </button>
-          )}
+          {captured && <Pill tone="verified">Voiced turn by turn</Pill>}
         </div>
         <details className="mt-3 text-xs text-muted-foreground">
           <summary className="cursor-pointer select-none hover:text-foreground">
@@ -561,20 +997,4 @@ function ProvenanceCard({
       </dl>
     </div>
   );
-}
-
-function speakConversation(turns: CounterAgentTurn[]) {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const voices = window.speechSynthesis.getVoices();
-  for (const item of turns) {
-    const utterance = new SpeechSynthesisUtterance(item.text);
-    utterance.rate = item.speaker === "wrenchbid" ? 1.04 : 0.98;
-    utterance.pitch = item.speaker === "wrenchbid" ? 1.08 : 0.92;
-    utterance.voice =
-      voices.find((voice) => voice.lang.startsWith("en") && voice.name.includes("Microsoft")) ??
-      voices.find((voice) => voice.lang.startsWith("en")) ??
-      null;
-    window.speechSynthesis.speak(utterance);
-  }
 }

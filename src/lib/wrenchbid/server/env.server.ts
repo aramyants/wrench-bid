@@ -37,6 +37,18 @@ const EnvironmentSchema = z.object({
   ELEVENLABS_WEBHOOK_SECRET: optionalString,
   ELEVENLABS_TELEPHONY_PROVIDER: z.enum(["twilio", "sip"]).default("twilio"),
   ELEVENLABS_ENVIRONMENT: z.string().min(1).default("production"),
+  ELEVENLABS_TTS_MODEL_ID: z.preprocess(
+    normalizeOptionalEnvironmentValue,
+    z.string().min(1).default("eleven_turbo_v2_5"),
+  ),
+  ELEVENLABS_DIALOGUE_MODEL_ID: z.preprocess(
+    normalizeOptionalEnvironmentValue,
+    z.string().min(1).default("eleven_v3"),
+  ),
+  ELEVENLABS_SIMULATION_LLM: z.preprocess(
+    normalizeOptionalEnvironmentValue,
+    z.string().min(1).default("gemini-3.5-flash"),
+  ),
   TAVILY_API_KEY: optionalString,
   WOZ_API_KEY: optionalString,
   WOZ_API_BASE_URL: optionalUrl,

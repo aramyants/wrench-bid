@@ -1,0 +1,85 @@
+{
+  "name": "cash-conditional-discount",
+  "style": "friction",
+  "description": "The headline total only holds for cash payment. The condition must be captured verbatim as a conditional term with transcript evidence, never presented as an unconditional price.",
+  "data": {
+    "conversation_id": "conv_golden_cash_condition",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant calling on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Sure. Parts $290, labor $230, shop supplies $35, diagnostic and disposal are $0, and tax $45.",
+        "time_in_call_secs": 20
+      },
+      {
+        "role": "agent",
+        "message": "Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds — and whether any of it depends on how the customer pays.",
+        "time_in_call_secs": 32
+      },
+      {
+        "role": "user",
+        "message": "Cash price is $600 all-in; if the customer pays by card it's $625. Warranty 12 months, earliest Monday, good for 7 days.",
+        "time_in_call_secs": 48
+      },
+      {
+        "role": "agent",
+        "message": "Confirmed: $600 all-in for cash payment, $625 by card, with the 12 months warranty. I'll present both conditions exactly as stated to the customer.",
+        "time_in_call_secs": 60
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "parts": { "value": 290 },
+        "labor": { "value": 230 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 35 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 45 },
+        "all_in_total": { "value": 600 },
+        "warranty": { "value": "12 months" },
+        "earliest_appointment": { "value": "2026-07-20" },
+        "quote_expiration": { "value": "2026-07-26" },
+        "conditions": {
+          "value": ["Cash price is $600 all-in; if the customer pays by card it's $625."]
+        }
+      }
+    },
+    "metadata": { "call_duration_secs": 66 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 290,
+        "labor": 230,
+        "diagnostic": 0,
+        "shop_supply": 35,
+        "disposal": 0,
+        "tax": 45
+      },
+      "total": 600,
+      "subtotal": 555,
+      "status": "complete",
+      "completeness": 1,
+      "confirmedInCall": true,
+      "warnings": [],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "all_in_total",
+        "warranty",
+        "conditions"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

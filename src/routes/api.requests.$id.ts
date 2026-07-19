@@ -3,7 +3,7 @@ import { apiHandler } from "@/lib/wrenchbid/server/api.server";
 import {
   assertSameOrigin,
   jsonResponse,
-  requireProjectSession,
+  requireExistingProjectSession,
 } from "@/lib/wrenchbid/server/project-session.server";
 import { deleteRepairSession, getRequestSnapshot } from "@/lib/wrenchbid/server/requests.server";
 
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/api/requests/$id")({
     handlers: {
       GET: ({ request, params }) =>
         apiHandler(async () => {
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const snapshot = await getRequestSnapshot(project.projectId, params.id);
           if (!snapshot) throw new Response("Request not found", { status: 404 });
           return jsonResponse(snapshot, { setCookie: project.setCookie });
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/api/requests/$id")({
       DELETE: ({ request, params }) =>
         apiHandler(async () => {
           assertSameOrigin(request);
-          const project = await requireProjectSession(request);
+          const project = await requireExistingProjectSession(request);
           const deleted = await deleteRepairSession(project.projectId, params.id);
           if (!deleted) throw new Response("Request not found", { status: 404 });
           return jsonResponse({ deleted: true }, { setCookie: project.setCookie });

@@ -1,0 +1,74 @@
+{
+  "name": "headline-only-incomplete",
+  "style": "friction",
+  "description": "Shop gives a single flat number and refuses to itemize. The quote must be recorded as incomplete and non-comparable, never padded with invented line items.",
+  "data": {
+    "conversation_id": "conv_golden_headline_only",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Five hundred flat. $500 all-in, parts and labor, with no itemization.",
+        "time_in_call_secs": 14
+      },
+      {
+        "role": "agent",
+        "message": "Could you itemize parts, labor, supplies, and tax separately so the customer can compare quotes?",
+        "time_in_call_secs": 24
+      },
+      {
+        "role": "user",
+        "message": "Nope. $500 flat, take it or leave it.",
+        "time_in_call_secs": 34
+      },
+      {
+        "role": "agent",
+        "message": "Understood. Is there a written warranty or an earliest appointment I should note?",
+        "time_in_call_secs": 40
+      },
+      {
+        "role": "user",
+        "message": "Nothing in writing. Bring it in whenever.",
+        "time_in_call_secs": 50
+      },
+      {
+        "role": "agent",
+        "message": "Recording $500 all-in with no itemization. I'll present that to the customer as-is.",
+        "time_in_call_secs": 58
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "all_in_total": { "value": 500 }
+      }
+    },
+    "metadata": { "call_duration_secs": 64 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {},
+      "total": 500,
+      "subtotal": null,
+      "status": "incomplete",
+      "completeness": 0.09090909090909091,
+      "confirmedInCall": true,
+      "warnings": [
+        "missing_parts",
+        "missing_labor",
+        "missing_diagnostic_fee",
+        "missing_shop_supply_fee",
+        "missing_disposal_fee",
+        "missing_tax",
+        "non_comparable_scope"
+      ],
+      "evidencedFields": ["all_in_total"]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

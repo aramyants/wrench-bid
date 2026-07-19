@@ -1,0 +1,47 @@
+{
+  "name": "callback-commitment",
+  "style": "friction",
+  "description": "The decision maker is unavailable and promises a callback. The call must end as a structured callback commitment, not a quote and not a decline.",
+  "data": {
+    "conversation_id": "conv_golden_callback_commitment",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant phoning on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Our service manager handles quotes and he's out until tomorrow. He'll call you back in the morning with exact numbers.",
+        "time_in_call_secs": 15
+      },
+      {
+        "role": "agent",
+        "message": "Thank you — I'm noting a callback commitment for tomorrow morning. Which number will the manager call from?",
+        "time_in_call_secs": 28
+      },
+      {
+        "role": "user",
+        "message": "This one, the shop's main line.",
+        "time_in_call_secs": 38
+      },
+      {
+        "role": "agent",
+        "message": "Great. I'll record the callback commitment for tomorrow morning. Thank you for your time.",
+        "time_in_call_secs": 44
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "call_outcome": { "value": "callback" }
+      }
+    },
+    "metadata": { "call_duration_secs": 50 }
+  },
+  "expected": {
+    "outcome": "callback_commitment",
+    "quote": null,
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

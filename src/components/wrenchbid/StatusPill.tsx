@@ -51,7 +51,11 @@ export function Pill({
 
 const CALL_MAP: Record<CallStatus, { tone: Tone; icon: React.ReactNode; label: string }> = {
   queued: { tone: "muted", icon: <Clock className="h-3 w-3" />, label: "Queued" },
-  ringing: { tone: "cobalt", icon: <Loader2 className="h-3 w-3 animate-spin" />, label: "Ringing" },
+  ringing: {
+    tone: "cobalt",
+    icon: <Loader2 className="h-3 w-3 animate-spin" />,
+    label: "Connecting",
+  },
   connected: { tone: "cobalt", icon: <PhoneCall className="h-3 w-3" />, label: "Connected" },
   collecting_quote: {
     tone: "lime",

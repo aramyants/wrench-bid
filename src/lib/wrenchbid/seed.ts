@@ -33,7 +33,7 @@ export const seedSpec: RepairSpec = {
     make: "Toyota",
     model: "Camry",
     trim: "SE",
-    mileage: 52000,
+    mileage: 62000,
     vinLast8: "12345678",
   },
   diagnosisSource: "Uploaded dealer estimate — sample_estimate.pdf",
@@ -91,10 +91,10 @@ export const seedSpec: RepairSpec = {
       excerpt: "TRIM: SE",
     },
     "vehicle.mileage": {
-      source: "document",
-      status: "needs_confirmation",
-      confidence: 0.71,
-      excerpt: "ODOMETER: 52,000 mi (partial reading)",
+      source: "manual",
+      status: "verified",
+      confidence: 1,
+      excerpt: "Confirmed by user: 62,000 miles",
     },
     "vehicle.vinLast8": {
       source: "document",

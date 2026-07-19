@@ -1,0 +1,82 @@
+{
+  "name": "currency-mismatch-cad",
+  "style": "friction",
+  "description": "The shop quotes in Canadian dollars. The pipeline must record the stated currency and add a currency_mismatch warning so the quote is never silently compared against USD quotes.",
+  "data": {
+    "conversation_id": "conv_golden_currency_mismatch",
+    "status": "done",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant calling on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "We can do that. Parts $410, labor $300, shop supplies $40, diagnostic and disposal are $0, and tax $65.50 — heads up, that's in Canadian dollars.",
+        "time_in_call_secs": 22
+      },
+      {
+        "role": "agent",
+        "message": "Understood — I'll record the quote in Canadian dollars so it is never mixed with US-dollar quotes. Please confirm the final all-in total, warranty, earliest appointment, and how long the quote holds.",
+        "time_in_call_secs": 34
+      },
+      {
+        "role": "user",
+        "message": "All-in $815.50 Canadian, warranty 12 months, earliest Thursday, good for 10 days.",
+        "time_in_call_secs": 50
+      },
+      {
+        "role": "agent",
+        "message": "Confirmed: $815.50 Canadian all-in with the 12 months warranty. I'll present that exact quote and its currency to the customer.",
+        "time_in_call_secs": 62
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {
+        "parts": { "value": 410 },
+        "labor": { "value": 300 },
+        "diagnostic_fee": { "value": 0 },
+        "shop_supply_fee": { "value": 40 },
+        "disposal_fee": { "value": 0 },
+        "tax": { "value": 65.5 },
+        "all_in_total": { "value": 815.5 },
+        "currency": { "value": "CAD" },
+        "warranty": { "value": "12 months" },
+        "earliest_appointment": { "value": "2026-07-23" },
+        "quote_expiration": { "value": "2026-07-29" }
+      }
+    },
+    "metadata": { "call_duration_secs": 68 }
+  },
+  "expected": {
+    "outcome": "quote",
+    "quote": {
+      "items": {
+        "parts": 410,
+        "labor": 300,
+        "diagnostic": 0,
+        "shop_supply": 40,
+        "disposal": 0,
+        "tax": 65.5
+      },
+      "total": 815.5,
+      "subtotal": 750,
+      "status": "complete",
+      "completeness": 0.9090909090909091,
+      "confirmedInCall": true,
+      "warnings": ["currency_mismatch"],
+      "evidencedFields": [
+        "parts",
+        "labor",
+        "diagnostic_fee",
+        "shop_supply_fee",
+        "disposal_fee",
+        "tax",
+        "all_in_total",
+        "warranty"
+      ]
+    },
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "interrupted-call-failure",
+  "style": "friction",
+  "description": "The conversation drops before any terms are quoted. The call must resolve to the structured outcome 'failed' with no quote, never a vague partial result.",
+  "data": {
+    "conversation_id": "conv_golden_interrupted",
+    "status": "failed",
+    "transcript": [
+      {
+        "role": "agent",
+        "message": "Hi, this is WrenchBid, an AI assistant calling on behalf of a customer. I need an itemized quote for a confirmed scope: 2020 Toyota Camry SE, 62,000 miles, replace front brake pads and rotors with premium aftermarket parts, Charlotte, North Carolina 28202, completion within 7 days.",
+        "time_in_call_secs": 2
+      },
+      {
+        "role": "user",
+        "message": "Hold on — we've got a lift alarm going off out here—",
+        "time_in_call_secs": 14
+      }
+    ],
+    "analysis": {
+      "data_collection_results": {}
+    },
+    "metadata": { "call_duration_secs": 19 }
+  },
+  "expected": {
+    "outcome": "failed",
+    "quote": null,
+    "honesty": { "aiDisclosureAsked": false }
+  }
+}

@@ -16,6 +16,49 @@ const TavilyResponseSchema = z.object({
   ),
 });
 
+export type RepairShopSource = {
+  title: string;
+  url: string;
+  snippet: string;
+  score: number;
+};
+
+export async function findRepairShopSource(): Promise<RepairShopSource> {
+  const environment = getServerEnvironment();
+  if (!environment.TAVILY_API_KEY) {
+    throw new Response("Tavily is not configured", { status: 503 });
+  }
+  const response = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${environment.TAVILY_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      query: "official brake repair service shop Charlotte NC",
+      topic: "general",
+      search_depth: "basic",
+      max_results: 5,
+      include_answer: false,
+      include_raw_content: false,
+      include_images: false,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Response("Tavily source lookup failed", { status: 502 });
+  }
+  const payload = TavilyResponseSchema.parse(await response.json());
+  const result = payload.results.find((candidate) => candidate.score >= 0.35);
+  if (!result) throw new Response("Tavily returned no usable repair-shop source", { status: 502 });
+  return {
+    title: result.title.slice(0, 160),
+    url: result.url,
+    snippet: result.content.trim().slice(0, 500),
+    score: result.score,
+  };
+}
+
 function extractPhone(text: string) {
   const match = /(?:\+?1[\s.-]?)?\(?([2-9]\d{2})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/.exec(text);
   return match ? `+1${match[1]}${match[2]}${match[3]}` : "";
@@ -46,8 +89,6 @@ export async function discoverRepairShops(
     headers: {
       authorization: `Bearer ${environment.TAVILY_API_KEY}`,
       "content-type": "application/json",
-      "x-project-id": projectId,
-      "x-session-id": sessionId,
     },
     body: JSON.stringify({
       query: normalizedQuery,
