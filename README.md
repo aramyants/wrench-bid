@@ -6,8 +6,8 @@ Built for the Hack-Nation × ElevenLabs "The Negotiator" challenge. Main flow:
 
 **Intake** (PDF upload and/or ElevenLabs voice interview) → **review, correct, confirm** an immutable RepairSpec → **three negotiation sessions** against distinct counterparty styles → **itemized quotes with transcript evidence** → **second round using a stored, verified competing quote** → **ranked, explained recommendation** → **user-controlled deletion**.
 
-- 🔗 Live demo: _placeholder — deploy per [docs/deployment.md](docs/deployment.md), then link here_
-- 🎥 Demo video: _placeholder — record the 90-second script in [docs/demo-runbook.md](docs/demo-runbook.md)_
+- 🔗 Live demo: **<https://hacknation.aramyants.com>** (Cloud Run + Neon; use this URL — the raw [Cloud Run mirror](https://wrenchbid-ln6mjd5y3a-uc.a.run.app) is view-only because interactive endpoints are origin-locked to the canonical domain)
+- 🎥 Demo video: linked from the Hack-Nation submission; live-demo runbook in [docs/demo-runbook.md](docs/demo-runbook.md)
 - 📋 Challenge compliance map: [docs/challenge-compliance.md](docs/challenge-compliance.md)
 - 🧪 Evals: `npm run eval` — 76 deterministic checks, results in [docs/eval-results.md](docs/eval-results.md)
 

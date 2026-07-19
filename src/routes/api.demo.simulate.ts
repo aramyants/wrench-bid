@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createFileRoute } from "@tanstack/react-router";
 import { apiHandler } from "@/lib/wrenchbid/server/api.server";
+import { withoutSpeechAnnotations } from "@/lib/wrenchbid/speech";
 import {
   streamElevenLabsRepairSimulation,
   synthesizeElevenLabsSpeech,
@@ -120,7 +121,7 @@ export const Route = createFileRoute("/api/demo/simulate")({
                     for (const item of event.simulated_conversation ?? []) {
                       if (item.role !== "agent" && item.role !== "user") continue;
                       if (typeof item.message !== "string") continue;
-                      const text = item.message.trim();
+                      const text = withoutSpeechAnnotations(item.message);
                       if (!text) continue;
                       if (text.includes("END_CALL")) {
                         ended = true;

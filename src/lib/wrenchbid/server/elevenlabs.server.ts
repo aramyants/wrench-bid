@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { E164_PHONE_PATTERN } from "../phone";
-import { speakableText } from "../speech";
+import { spokenText } from "../speech";
 import { getServerEnvironment } from "./env.server";
 
 const TokenResponseSchema = z.object({ token: z.string().min(1) });
@@ -63,7 +63,7 @@ export async function synthesizeElevenLabsDialogue(
       body: JSON.stringify({
         model_id: getServerEnvironment().ELEVENLABS_DIALOGUE_MODEL_ID,
         inputs: inputs.map((input) => ({
-          text: speakableText(input.text),
+          text: spokenText(input.text),
           voice_id: input.voiceId,
         })),
       }),
@@ -85,7 +85,7 @@ export async function synthesizeElevenLabsSpeech(text: string, voiceId: string) 
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        text: speakableText(text).slice(0, 2_000),
+        text: spokenText(text).slice(0, 2_000),
         model_id: getServerEnvironment().ELEVENLABS_TTS_MODEL_ID,
         voice_settings: {
           stability: 0.45,
@@ -120,6 +120,7 @@ export async function streamElevenLabsRepairSimulation(source: {
     "Use the source only for public business/service context. Never claim the source published the test prices below.",
     "For this simulation only, quote: parts $312, labor $228, diagnostic $0, shop supplies $28, disposal $0, tax $48.69, all-in total $616.69, warranty 12 months or 12,000 miles, earliest appointment two days from today, quote valid 14 days, subject to visual inspection.",
     "Behave like a natural service advisor. Do not volunteer every field at once unless asked. Never invent other terms. End after confirming the complete quote.",
+    "Use plain spoken dialogue only. Never include emotion labels, stage directions, or audio tags such as [happy], [laughs], or [whispers].",
   ].join("\n");
   return elevenLabsRequest(
     `/v1/convai/agents/${encodeURIComponent(environment.ELEVENLABS_CALLER_AGENT_ID)}/simulate-conversation/stream`,

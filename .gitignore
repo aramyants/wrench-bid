@@ -34,3 +34,10 @@ data/
 *.njsproj
 *.sln
 *.sw?
+
+# Agent scratch workspaces and local-only materials (never ship)
+.codex-scratch/
+deliverables/
+
+# Office lock files
+~$*

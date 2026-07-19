@@ -4,6 +4,7 @@ import {
   buildQuoteConversation,
   DEMO_COUNTER_AGENTS,
 } from "./counter-agents";
+import { spokenText } from "./speech";
 
 describe("counter-agent demo market", () => {
   it("uses three distinct behaviors and voices every final total", () => {
@@ -45,5 +46,15 @@ describe("counter-agent demo market", () => {
     });
     expect(unsupported.outcome).toBe("unchanged");
     expect(unsupported.after).toBe(616.69);
+  });
+
+  it("sends the dense itemization to TTS as paced words rather than numeric tokens", () => {
+    const precision = DEMO_COUNTER_AGENTS.find((agent) => agent.id === "precision")!;
+    const itemization = buildQuoteConversation(precision)[1].text;
+    const speech = spokenText(itemization);
+
+    expect(speech).not.toMatch(/[\d$]/);
+    expect(speech).toContain("Parts are three hundred twelve dollars.");
+    expect(speech).toContain("Tax is forty-eight dollars and sixty-nine cents.");
   });
 });
